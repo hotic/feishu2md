@@ -16,10 +16,12 @@ import (
 )
 
 type DownloadOpts struct {
-	outputDir string
-	dump      bool
-	batch     bool
-	wiki      bool
+	outputDir  string
+	dump       bool
+	batch      bool
+	wiki       bool
+	docName    string // Optional custom document name
+	skipImages bool   // 是否跳过图片下载
 }
 
 var dlOpts = DownloadOpts{}
@@ -58,16 +60,39 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 	title := docx.Title
 	markdown := parser.ParseDocxContent(docx, blocks)
 
-	if !dlConfig.Output.SkipImgDownload {
+	// Determine document name for image folder
+	var docName string
+	if opts.docName != "" {
+		// Use the provided document name from config
+		docName = utils.SanitizeFileName(opts.docName)
+	} else if dlConfig.Output.TitleAsFilename {
+		// Use title as folder name if configured
+		docName = utils.SanitizeFileName(title)
+	} else {
+		// Default to token as folder name
+		docName = docToken
+	}
+
+	// 检查是否跳过图片下载：opts.skipImages 优先于配置文件中的设置
+	shouldSkipImages := opts.skipImages || dlConfig.Output.SkipImgDownload
+
+	if !shouldSkipImages {
+		// Create document-specific image directory
+		imageDir := filepath.Join(opts.outputDir, docName)
+
 		for _, imgToken := range parser.ImgTokens {
 			localLink, err := client.DownloadImage(
-				ctx, imgToken, filepath.Join(opts.outputDir, dlConfig.Output.ImageDir),
+				ctx, imgToken, imageDir,
 			)
 			if err != nil {
 				return err
 			}
-			markdown = strings.Replace(markdown, imgToken, localLink, 1)
+			// Update the image path to be relative to the markdown file
+			relPath := filepath.Join(docName, filepath.Base(localLink))
+			markdown = strings.Replace(markdown, imgToken, relPath, 1)
 		}
+	} else {
+		fmt.Printf("  跳过图片下载（共 %d 张图片）\n", len(parser.ImgTokens))
 	}
 
 	// Format the markdown document
@@ -102,9 +127,16 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 	}
 
 	// Write to markdown file
-	mdName := fmt.Sprintf("%s.md", docToken)
-	if dlConfig.Output.TitleAsFilename {
+	var mdName string
+	if opts.docName != "" {
+		// Use the provided document name from config
+		mdName = fmt.Sprintf("%s.md", utils.SanitizeFileName(opts.docName))
+	} else if dlConfig.Output.TitleAsFilename {
+		// Use title as filename if configured
 		mdName = fmt.Sprintf("%s.md", utils.SanitizeFileName(title))
+	} else {
+		// Default to token as filename
+		mdName = fmt.Sprintf("%s.md", docToken)
 	}
 	outputPath := filepath.Join(opts.outputDir, mdName)
 	if err = os.WriteFile(outputPath, []byte(result), 0o644); err != nil {
@@ -134,7 +166,6 @@ func downloadDocuments(ctx context.Context, client *core.Client, url string) err
 		if err != nil {
 			return err
 		}
-		opts := DownloadOpts{outputDir: folderPath, dump: dlOpts.dump, batch: false}
 		for _, file := range files {
 			if file.Type == "folder" {
 				_folderPath := filepath.Join(folderPath, file.Name)
@@ -142,6 +173,14 @@ func downloadDocuments(ctx context.Context, client *core.Client, url string) err
 					return err
 				}
 			} else if file.Type == "docx" {
+				// Use file name as document name for image folder
+				opts := DownloadOpts{
+					outputDir:  folderPath,
+					dump:       dlOpts.dump,
+					batch:      false,
+					docName:    file.Name,
+					skipImages: dlOpts.skipImages, // 继承父级的skipImages设置
+				}
 				// concurrently download the document
 				wg.Add(1)
 				go func(_url string) {
@@ -213,7 +252,14 @@ func downloadWiki(ctx context.Context, client *core.Client, url string) error {
 				}
 			}
 			if n.ObjType == "docx" {
-				opts := DownloadOpts{outputDir: folderPath, dump: dlOpts.dump, batch: false}
+				// Use node title as document name for image folder
+				opts := DownloadOpts{
+					outputDir:  folderPath,
+					dump:       dlOpts.dump,
+					batch:      false,
+					docName:    n.Title,
+					skipImages: dlOpts.skipImages, // 继承父级的skipImages设置
+				}
 				wg.Add(1)
 				semaphore <- struct{}{}
 				go func(_url string) {
