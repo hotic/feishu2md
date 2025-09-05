@@ -27,7 +27,7 @@ func downloadHandler(c *gin.Context) {
 
 	// Validate the url to download
 	docType, docToken, err := utils.ValidateDocumentURL(feishu_docx_url)
-	fmt.Println("Captured document token:", docToken)
+	fmt.Println("获取文档令牌:", docToken)
 
 	// Create client with context
 	ctx := context.Background()

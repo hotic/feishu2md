@@ -19,19 +19,23 @@ type SyncConfig struct {
 
 // SyncSettings represents sync-specific settings
 type SyncSettings struct {
-	OutputDir           string `json:"output_dir" yaml:"output_dir"`                     // 输出目录
-	CleanBeforeSync     bool   `json:"clean_before_sync" yaml:"clean_before_sync"`       // 同步前是否清空目录
-	ConcurrentDownloads int    `json:"concurrent_downloads" yaml:"concurrent_downloads"` // 并发下载数
-	OrganizeByGroup     bool   `json:"organize_by_group" yaml:"organize_by_group"`       // 是否按组织结构存储
-	SkipImages          bool   `json:"skip_images" yaml:"skip_images"`                   // 是否跳过图片下载（全局配置）
+	OutputDir           string `json:"output_dir" yaml:"output_dir"`
+	CleanBeforeSync     bool   `json:"clean_before_sync" yaml:"clean_before_sync"`
+	ConcurrentDownloads int    `json:"concurrent_downloads" yaml:"concurrent_downloads"`
+	OrganizeByGroup     bool   `json:"organize_by_group" yaml:"organize_by_group"`
+	SkipImages          bool   `json:"skip_images" yaml:"skip_images"`
 }
 
 // DocConfig represents a single document configuration
+// Type: optional doc type override:
+//   - "docx" / "wiki" / "folder" keep existing behaviors
+//   - "csv" / "xlsx" mean export Feishu Bitable as CSV/XLSX (requires table/view in URL)
 type DocConfig struct {
-	Name       string `json:"name" yaml:"name"`                                   // 文档名称
-	URL        string `json:"url" yaml:"url"`                                     // 文档URL
-	Group      string `json:"group,omitempty" yaml:"group,omitempty"`             // 文档分组（可选）
-	SkipImages *bool  `json:"skip_images,omitempty" yaml:"skip_images,omitempty"` // 是否跳过图片下载（单文档配置，使用指针以区分是否设置）
+	Name       string `json:"name" yaml:"name"`
+	URL        string `json:"url" yaml:"url"`
+	Group      string `json:"group,omitempty" yaml:"group,omitempty"`
+	SkipImages *bool  `json:"skip_images,omitempty" yaml:"skip_images,omitempty"`
+	Type       string `json:"type,omitempty" yaml:"type,omitempty"`
 }
 
 // NewSyncConfig creates a new sync configuration with defaults
@@ -43,7 +47,7 @@ func NewSyncConfig() *SyncConfig {
 			CleanBeforeSync:     false,
 			ConcurrentDownloads: 3,
 			OrganizeByGroup:     true,
-			SkipImages:          false, // 默认不跳过图片下载
+			SkipImages:          false,
 		},
 		Documents: []DocConfig{},
 	}
@@ -71,15 +75,12 @@ func GetSyncConfigPath() (string, error) {
 // LoadSyncConfig loads sync configuration from file
 func LoadSyncConfig(path string) (*SyncConfig, error) {
 	if path == "" {
-		// 优先查找当前目录的配置文件
-		// 1. 尝试当前目录的 sync_config.yaml
+		// Preference order: local yaml/yml, then user config dir
 		if _, err := os.Stat("sync_config.yaml"); err == nil {
 			path = "sync_config.yaml"
 		} else if _, err := os.Stat("sync_config.yml"); err == nil {
-			// 2. 尝试当前目录的 sync_config.yml
 			path = "sync_config.yml"
 		} else {
-			// 3. 使用用户配置目录
 			var err error
 			path, err = GetSyncConfigPath()
 			if err != nil {
@@ -90,22 +91,18 @@ func LoadSyncConfig(path string) (*SyncConfig, error) {
 
 	// If path doesn't have extension, try both YAML and JSON
 	if !strings.HasSuffix(path, ".yaml") && !strings.HasSuffix(path, ".yml") && !strings.HasSuffix(path, ".json") {
-		// Try YAML first
 		yamlPath := path + ".yaml"
 		if _, err := os.Stat(yamlPath); err == nil {
 			path = yamlPath
 		} else {
-			// Try YML
 			ymlPath := path + ".yml"
 			if _, err := os.Stat(ymlPath); err == nil {
 				path = ymlPath
 			} else {
-				// Try JSON
 				jsonPath := path + ".json"
 				if _, err := os.Stat(jsonPath); err == nil {
 					path = jsonPath
 				} else {
-					// Default to YAML
 					path = yamlPath
 				}
 			}
@@ -233,7 +230,7 @@ func (c *SyncConfig) RemoveDocument(nameOrIndex string) error {
 		return fmt.Errorf("index %d out of range", index)
 	}
 
-	// Try to match by name
+	// Try by name
 	for i, doc := range c.Documents {
 		if doc.Name == nameOrIndex {
 			c.Documents = append(c.Documents[:i], c.Documents[i+1:]...)
@@ -245,7 +242,6 @@ func (c *SyncConfig) RemoveDocument(nameOrIndex string) error {
 }
 
 // GetDocuments returns all documents, optionally filtered by group
-// Documents commented out in YAML won't be included
 func (c *SyncConfig) GetDocuments(group string) []DocConfig {
 	var docs []DocConfig
 	for _, doc := range c.Documents {

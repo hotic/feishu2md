@@ -33,7 +33,7 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 	if err != nil {
 		return err
 	}
-	fmt.Println("Captured document token:", docToken)
+	fmt.Println("获取文档令牌:", docToken)
 
 	// for a wiki page, we need to renew docType and docToken first
 	if docType == "wiki" {
@@ -142,7 +142,7 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 	if err = os.WriteFile(outputPath, []byte(result), 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("Downloaded markdown file to %s\n", outputPath)
+	fmt.Printf("已下载 markdown 文件到 %s\n", outputPath)
 
 	return nil
 }

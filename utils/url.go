@@ -46,3 +46,14 @@ func ValidateWikiURL(url string) (string, string, error) {
 	wikiToken := matchResult[2]
 	return prefixURL, wikiToken, nil
 }
+
+func ExtractBitableParams(rawURL string) (string, string) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", ""
+	}
+	q := u.Query()
+	tableID := q.Get("table")
+	viewID := q.Get("view")
+	return tableID, viewID
+}

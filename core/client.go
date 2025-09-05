@@ -176,3 +176,98 @@ func (c *Client) GetWikiNodeList(ctx context.Context, spaceID string, parentNode
 
 	return nodes, nil
 }
+
+func (c *Client) GetBitableMeta(ctx context.Context, appToken string) (*lark.GetBitableMetaRespApp, error) {
+	resp, _, err := c.larkClient.Bitable.GetBitableMeta(ctx, &lark.GetBitableMetaReq{
+		AppToken: appToken,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.App, nil
+}
+
+func (c *Client) GetBitableTableList(ctx context.Context, appToken string) ([]*lark.GetBitableTableListRespItem, error) {
+	var all []*lark.GetBitableTableListRespItem
+	var pageToken *string
+	for {
+		resp, _, err := c.larkClient.Bitable.GetBitableTableList(ctx, &lark.GetBitableTableListReq{
+			AppToken:  appToken,
+			PageToken: pageToken,
+			PageSize:  nil,
+		})
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Items...)
+		if !resp.HasMore || resp.PageToken == "" || (pageToken != nil && *pageToken == resp.PageToken) {
+			break
+		}
+		pageToken = &resp.PageToken
+	}
+	return all, nil
+}
+
+func (c *Client) GetBitableViewList(ctx context.Context, appToken, tableID string) ([]*lark.GetBitableViewListRespItem, error) {
+	var all []*lark.GetBitableViewListRespItem
+	var pageToken *string
+	for {
+		resp, _, err := c.larkClient.Bitable.GetBitableViewList(ctx, &lark.GetBitableViewListReq{
+			AppToken:  appToken,
+			TableID:   tableID,
+			PageSize:  nil,
+			PageToken: pageToken,
+		})
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Items...)
+		if !resp.HasMore || resp.PageToken == "" || (pageToken != nil && *pageToken == resp.PageToken) {
+			break
+		}
+		pageToken = &resp.PageToken
+	}
+	return all, nil
+}
+
+func (c *Client) GetBitableFieldList(ctx context.Context, appToken, tableID string, viewID *string) ([]*lark.GetBitableFieldListRespItem, error) {
+	var all []*lark.GetBitableFieldListRespItem
+	var pageToken *string
+	for {
+		req := &lark.GetBitableFieldListReq{
+			AppToken:  appToken,
+			TableID:   tableID,
+			ViewID:    viewID,
+			PageToken: pageToken,
+		}
+		resp, _, err := c.larkClient.Bitable.GetBitableFieldList(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Items...)
+		if !resp.HasMore || resp.PageToken == "" || (pageToken != nil && *pageToken == resp.PageToken) {
+			break
+		}
+		pageToken = &resp.PageToken
+	}
+	return all, nil
+}
+
+func (c *Client) GetBitableRecordPage(ctx context.Context, appToken, tableID string, viewID *string, pageToken *string, pageSize int64) (*lark.GetBitableRecordListResp, error) {
+	req := &lark.GetBitableRecordListReq{
+		AppToken:  appToken,
+		TableID:   tableID,
+		ViewID:    viewID,
+		PageToken: pageToken,
+		PageSize:  &pageSize,
+	}
+	return c.getBitableRecordList(ctx, req)
+}
+
+func (c *Client) getBitableRecordList(ctx context.Context, req *lark.GetBitableRecordListReq) (*lark.GetBitableRecordListResp, error) {
+	resp, _, err := c.larkClient.Bitable.GetBitableRecordList(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}

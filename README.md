@@ -131,6 +131,15 @@
 </details>
 
 <details>
+  <summary>Sync 配置：导出多维表格为 CSV/XLSX</summary>
+
+  在 `sync_config.yaml` 的某个条目中新增 `type: csv` 或 `type: xlsx`，并提供带有 `table=tbl...&view=vew...` 的链接（通常是知识库页面中嵌入的多维表格页面 URL）。示例：
+
+  运行 `feishu2md sync run` 即可在输出目录下生成以“应用名_表名_视图名”命名的导出文件（与网页版默认命名一致）。字段顺序、筛选与排序与视图一致，支持分页导出。
+
+</details>
+
+<details>
   <summary>Docker版本</summary>
 
   Docker 镜像：https://hub.docker.com/r/wwwsine/feishu2md

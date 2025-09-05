@@ -217,14 +217,17 @@ func handleSyncList(ctx *cli.Context) error {
 		}
 		fmt.Printf("\n[%s]\n", groupName)
 		for _, doc := range docs {
-			// Auto-detect type from URL
-			docType := "docx"
-			if strings.Contains(doc.URL, "/wiki/settings/") {
-				docType = "wiki_space"
-			} else if strings.Contains(doc.URL, "/wiki/") {
-				docType = "wiki_page"
-			} else if strings.Contains(doc.URL, "/drive/folder/") || strings.Contains(doc.URL, "/folder/") {
-				docType = "folder"
+			// Determine type: explicit config overrides URL auto-detect
+			docType := doc.Type
+			if docType == "" {
+				docType = "docx"
+				if strings.Contains(doc.URL, "/wiki/settings/") {
+					docType = "wiki_space"
+				} else if strings.Contains(doc.URL, "/wiki/") {
+					docType = "wiki_page"
+				} else if strings.Contains(doc.URL, "/drive/folder/") || strings.Contains(doc.URL, "/folder/") {
+					docType = "folder"
+				}
 			}
 			fmt.Printf("  %d. %s (%s)\n", index, doc.Name, docType)
 			fmt.Printf("     URL: %s\n", doc.URL)
@@ -300,7 +303,7 @@ func handleSyncRun(ctx *cli.Context) error {
 			if groupInfo == "" {
 				groupInfo = "根目录"
 			}
-			fmt.Printf("\n[%s] Downloading %s...\n", groupInfo, doc.Name)
+			fmt.Printf("\n[%s] 下载 %s...\n", groupInfo, doc.Name)
 
 			outputDir := syncConfig.Sync.OutputDir
 			// 只有当 OrganizeByGroup 为 true 且 group 不为空时才按组存储
@@ -318,7 +321,7 @@ func handleSyncRun(ctx *cli.Context) error {
 				successMux.Lock()
 				successCount++
 				successMux.Unlock()
-				fmt.Printf("  ✓ Success: %s\n", doc.Name)
+				fmt.Printf("  ✓ 成功: %s\n", doc.Name)
 			}
 		}(doc)
 	}
@@ -327,19 +330,19 @@ func handleSyncRun(ctx *cli.Context) error {
 
 	// Print summary
 	elapsed := time.Since(startTime)
-	fmt.Printf("\n=== Sync Complete ===\n")
-	fmt.Printf("Time elapsed: %v\n", elapsed.Round(time.Second))
-	fmt.Printf("Success: %d/%d\n", successCount, len(documents))
+	fmt.Printf("\n=== 同步完成 ===\n")
+	fmt.Printf("耗时: %v\n", elapsed.Round(time.Second))
+	fmt.Printf("成功: %d/%d\n", successCount, len(documents))
 
 	if len(errors) > 0 {
-		fmt.Println("\nErrors:")
+		fmt.Println("\n错误:")
 		for _, err := range errors {
 			fmt.Printf("  - %v\n", err)
 		}
-		return cli.Exit("Sync completed with errors", 1)
+		return cli.Exit("同步完成但有错误", 1)
 	}
 
-	fmt.Println("\n✓ All documents synced successfully!")
+	fmt.Println("\n✓ 所有文档同步成功!")
 	return nil
 }
 
@@ -378,12 +381,15 @@ func syncDocument(ctx context.Context, client *core.Client, doc DocConfig, outpu
 		}
 	}
 
-	// Auto-detect type from URL (no longer from config)
-	docType := "docx" // default
-	if strings.Contains(doc.URL, "/wiki/") {
-		docType = "wiki"
-	} else if strings.Contains(doc.URL, "/folder/") {
-		docType = "folder"
+	// Determine type: explicit config overrides URL auto-detect
+	docType := doc.Type
+	if docType == "" {
+		docType = "docx"
+		if strings.Contains(doc.URL, "/wiki/") {
+			docType = "wiki"
+		} else if strings.Contains(doc.URL, "/folder/") {
+			docType = "folder"
+		}
 	}
 
 	// 判断是否跳过图片下载：单文档配置优先级高于全局配置
@@ -410,6 +416,10 @@ func syncDocument(ctx context.Context, client *core.Client, doc DocConfig, outpu
 		return downloadDocument(ctx, client, doc.URL, &opts)
 	case "folder":
 		return downloadDocuments(ctx, client, doc.URL)
+	case "csv":
+		return exportBitable(ctx, client, doc.URL, "csv", outputDir, doc.Name)
+	case "xlsx":
+		return exportBitable(ctx, client, doc.URL, "xlsx", outputDir, doc.Name)
 	default: // docx
 		return downloadDocument(ctx, client, doc.URL, &opts)
 	}
