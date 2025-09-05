@@ -1,0 +1,35 @@
+# 示例配置文件：config.yml
+# 此文件用于配置飞书文档同步工具 feishu2md 的行为
+# 复制此文件并重命名为 config.yml，然后根据需要修改配置
+
+version: "1.0"
+sync:
+  # 输出目录
+  output_dir: ./feishu_docs
+  # 同步前是否清空目录
+  clean_before_sync: true
+  # 并发下载数
+  concurrent_downloads: 10
+  # 是否按组织结构存储
+  organize_by_group: true
+  # 是否跳过图片下载
+  skip_images: true
+  # 是否使用飞书文档的原始标题名
+  use_original_title: true
+
+# 文档列表：需要同步的飞书文档
+# group 不填将直接保存到 output_dir 根目录
+documents:
+  # 普通文档 (markdown)
+  - name: 示例文档1
+    url: https://example.feishu.cn/wiki/EXAMPLE1
+
+  # CSV 格式的表格
+  - name: 示例表格_CSV
+    type: csv
+    url: https://example.feishu.cn/wiki/EXAMPLE2
+
+  # XLSX 格式的表格
+  - name: 示例表格_XLSX
+    type: xlsx
+    url: https://example.feishu.cn/wiki/EXAMPLE3
