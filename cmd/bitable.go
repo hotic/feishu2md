@@ -127,12 +127,19 @@ func exportBitable(ctx context.Context, client *core.Client, url string, format 
 		headers = append(headers, col.name)
 	}
 
-	// Build file name: App_Table_View (align with web export)
-	parts := []string{sanitizeFileName(appName), sanitizeFileName(tableName)}
-	if viewName != "" {
-		parts = append(parts, sanitizeFileName(viewName))
+	// Build file name: 根据preferName决定使用自定义名称还是原始标题
+	var baseName string
+	if preferName != "" {
+		// 使用配置中的自定义名称
+		baseName = sanitizeFileName(preferName)
+	} else {
+		// 使用原始标题: App_Table_View (align with web export)
+		parts := []string{sanitizeFileName(appName), sanitizeFileName(tableName)}
+		if viewName != "" {
+			parts = append(parts, sanitizeFileName(viewName))
+		}
+		baseName = strings.Join(parts, "_")
 	}
-	baseName := strings.Join(parts, "_")
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return err

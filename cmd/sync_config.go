@@ -24,6 +24,7 @@ type SyncSettings struct {
 	ConcurrentDownloads int    `json:"concurrent_downloads" yaml:"concurrent_downloads"`
 	OrganizeByGroup     bool   `json:"organize_by_group" yaml:"organize_by_group"`
 	SkipImages          bool   `json:"skip_images" yaml:"skip_images"`
+	UseOriginalTitle    bool   `json:"use_original_title" yaml:"use_original_title"`
 }
 
 // DocConfig represents a single document configuration

@@ -398,13 +398,22 @@ func syncDocument(ctx context.Context, client *core.Client, doc DocConfig, outpu
 		skipImages = *doc.SkipImages // 如果单文档有设置，则使用单文档配置
 	}
 
+	// 决定是否使用原始标题名
+	var docName string
+	if syncSettings.UseOriginalTitle {
+		docName = "" // 空字符串表示使用原始标题
+	} else {
+		docName = doc.Name // 使用配置中的自定义名称
+	}
+
 	opts := DownloadOpts{
-		outputDir:  outputDir,
-		dump:       false,
-		batch:      docType == "folder",
-		wiki:       docType == "wiki_space",
-		docName:    doc.Name, // Pass the document name from config
-		skipImages: skipImages,
+		outputDir:        outputDir,
+		dump:             false,
+		batch:            docType == "folder",
+		wiki:             docType == "wiki_space",
+		docName:          docName, // 根据配置决定使用哪个名称
+		skipImages:       skipImages,
+		useOriginalTitle: syncSettings.UseOriginalTitle, // 传递新的配置选项
 	}
 
 	switch docType {
@@ -417,9 +426,9 @@ func syncDocument(ctx context.Context, client *core.Client, doc DocConfig, outpu
 	case "folder":
 		return downloadDocuments(ctx, client, doc.URL)
 	case "csv":
-		return exportBitable(ctx, client, doc.URL, "csv", outputDir, doc.Name)
+		return exportBitable(ctx, client, doc.URL, "csv", outputDir, docName)
 	case "xlsx":
-		return exportBitable(ctx, client, doc.URL, "xlsx", outputDir, doc.Name)
+		return exportBitable(ctx, client, doc.URL, "xlsx", outputDir, docName)
 	default: // docx
 		return downloadDocument(ctx, client, doc.URL, &opts)
 	}

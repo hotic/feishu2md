@@ -16,12 +16,13 @@ import (
 )
 
 type DownloadOpts struct {
-	outputDir  string
-	dump       bool
-	batch      bool
-	wiki       bool
-	docName    string // Optional custom document name
-	skipImages bool   // 是否跳过图片下载
+	outputDir        string
+	dump             bool
+	batch            bool
+	wiki             bool
+	docName          string // Optional custom document name
+	skipImages       bool   // 是否跳过图片下载
+	useOriginalTitle bool   // Whether to use original title instead of docName
 }
 
 var dlOpts = DownloadOpts{}
@@ -62,7 +63,10 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 
 	// Determine document name for image folder
 	var docName string
-	if opts.docName != "" {
+	if opts.useOriginalTitle {
+		// 使用飞书文档的原始标题
+		docName = utils.SanitizeFileName(title)
+	} else if opts.docName != "" {
 		// Use the provided document name from config
 		docName = utils.SanitizeFileName(opts.docName)
 	} else if dlConfig.Output.TitleAsFilename {
@@ -128,7 +132,10 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 
 	// Write to markdown file
 	var mdName string
-	if opts.docName != "" {
+	if opts.useOriginalTitle {
+		// 使用飞书文档的原始标题
+		mdName = fmt.Sprintf("%s.md", utils.SanitizeFileName(title))
+	} else if opts.docName != "" {
 		// Use the provided document name from config
 		mdName = fmt.Sprintf("%s.md", utils.SanitizeFileName(opts.docName))
 	} else if dlConfig.Output.TitleAsFilename {
@@ -175,11 +182,12 @@ func downloadDocuments(ctx context.Context, client *core.Client, url string) err
 			} else if file.Type == "docx" {
 				// Use file name as document name for image folder
 				opts := DownloadOpts{
-					outputDir:  folderPath,
-					dump:       dlOpts.dump,
-					batch:      false,
-					docName:    file.Name,
-					skipImages: dlOpts.skipImages, // 继承父级的skipImages设置
+					outputDir:        folderPath,
+					dump:             dlOpts.dump,
+					batch:            false,
+					docName:          file.Name,
+					skipImages:       dlOpts.skipImages, // 继承父级的skipImages设置
+					useOriginalTitle: false,             // 在folder下载中使用文件名，不使用原始标题
 				}
 				// concurrently download the document
 				wg.Add(1)
@@ -254,11 +262,12 @@ func downloadWiki(ctx context.Context, client *core.Client, url string) error {
 			if n.ObjType == "docx" {
 				// Use node title as document name for image folder
 				opts := DownloadOpts{
-					outputDir:  folderPath,
-					dump:       dlOpts.dump,
-					batch:      false,
-					docName:    n.Title,
-					skipImages: dlOpts.skipImages, // 继承父级的skipImages设置
+					outputDir:        folderPath,
+					dump:             dlOpts.dump,
+					batch:            false,
+					docName:          n.Title,
+					skipImages:       dlOpts.skipImages, // 继承父级的skipImages设置
+					useOriginalTitle: false,             // 在wiki下载中使用节点标题，不使用原始标题
 				}
 				wg.Add(1)
 				semaphore <- struct{}{}
