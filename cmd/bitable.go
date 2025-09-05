@@ -26,17 +26,18 @@ type fieldInfo struct {
 
 // exportBitable exports a Feishu Bitable view to CSV or XLSX
 // url must contain table=tbl... and may contain view=vew...
-func exportBitable(ctx context.Context, client *core.Client, url string, format string, outputDir string, preferName string) error {
+// Returns the actual filename of the generated file
+func exportBitable(ctx context.Context, client *core.Client, url string, format string, outputDir string, preferName string) (string, error) {
 	// Extract tbl/vew from URL
 	tableID, viewID := utils.ExtractBitableParams(url)
 	if tableID == "" {
-		return fmt.Errorf("bitable export requires query param 'table=tbl...' in URL")
+		return "", fmt.Errorf("bitable export requires query param 'table=tbl...' in URL")
 	}
 
 	// Resolve app token from wiki/docx page
 	appToken, err := resolveBitableAppToken(ctx, client, url, tableID)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Fetch names for file naming
@@ -78,10 +79,10 @@ func exportBitable(ctx context.Context, client *core.Client, url string, format 
 	}
 	fields, err := client.GetBitableFieldList(ctx, appToken, tableID, viewPtr)
 	if err != nil {
-		return fmt.Errorf("get fields failed: %w", err)
+		return "", fmt.Errorf("get fields failed: %w", err)
 	}
 	if len(fields) == 0 {
-		return fmt.Errorf("no fields returned for table %s", tableID)
+		return "", fmt.Errorf("no fields returned for table %s", tableID)
 	}
 
 	// Build mapping for select options by field id
@@ -104,7 +105,7 @@ func exportBitable(ctx context.Context, client *core.Client, url string, format 
 	for {
 		resp, err := client.GetBitableRecordPage(ctx, appToken, tableID, viewPtr, pageToken, pageSize)
 		if err != nil {
-			return fmt.Errorf("list records failed: %w", err)
+			return "", fmt.Errorf("list records failed: %w", err)
 		}
 		for _, item := range resp.Items {
 			row := make([]string, 0, len(ordered))
@@ -142,27 +143,30 @@ func exportBitable(ctx context.Context, client *core.Client, url string, format 
 	}
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return err
+		return "", err
 	}
 
+	var actualFileName string
 	switch strings.ToLower(format) {
 	case "csv":
-		out := filepath.Join(outputDir, baseName+".csv")
+		actualFileName = baseName + ".csv"
+		out := filepath.Join(outputDir, actualFileName)
 		if err := writeCSV(out, headers, rows); err != nil {
-			return err
+			return "", err
 		}
 		fmt.Printf("Exported CSV to %s\n", out)
 	case "xlsx":
-		out := filepath.Join(outputDir, baseName+".xlsx")
+		actualFileName = baseName + ".xlsx"
+		out := filepath.Join(outputDir, actualFileName)
 		if err := writeXLSX(out, headers, rows, ordered); err != nil {
-			return err
+			return "", err
 		}
 		fmt.Printf("Exported XLSX to %s\n", out)
 	default:
-		return fmt.Errorf("unsupported export format: %s", format)
+		return "", fmt.Errorf("unsupported export format: %s", format)
 	}
 
-	return nil
+	return actualFileName, nil
 }
 
 // resolveBitableAppToken attempts to obtain the bitable app token (bascn...) from a given URL.

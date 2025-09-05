@@ -20,7 +20,7 @@ type SyncConfig struct {
 // SyncSettings represents sync-specific settings
 type SyncSettings struct {
 	OutputDir           string `json:"output_dir" yaml:"output_dir"`
-	CleanBeforeSync     bool   `json:"clean_before_sync" yaml:"clean_before_sync"`
+	SyncMode            string `json:"sync_mode" yaml:"sync_mode"` // "clean_all" 或 "incremental"
 	ConcurrentDownloads int    `json:"concurrent_downloads" yaml:"concurrent_downloads"`
 	OrganizeByGroup     bool   `json:"organize_by_group" yaml:"organize_by_group"`
 	SkipImages          bool   `json:"skip_images" yaml:"skip_images"`
@@ -45,7 +45,7 @@ func NewSyncConfig() *SyncConfig {
 		Version: "1.0",
 		Sync: SyncSettings{
 			OutputDir:           "./feishu_docs",
-			CleanBeforeSync:     false,
+			SyncMode:            "clean_all",
 			ConcurrentDownloads: 3,
 			OrganizeByGroup:     true,
 			SkipImages:          false,

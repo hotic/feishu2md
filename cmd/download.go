@@ -28,11 +28,11 @@ type DownloadOpts struct {
 var dlOpts = DownloadOpts{}
 var dlConfig core.Config
 
-func downloadDocument(ctx context.Context, client *core.Client, url string, opts *DownloadOpts) error {
+func downloadDocument(ctx context.Context, client *core.Client, url string, opts *DownloadOpts) (string, error) {
 	// Validate the url to download
 	docType, docToken, err := utils.ValidateDocumentURL(url)
 	if err != nil {
-		return err
+		return "", err
 	}
 	fmt.Println("获取文档令牌:", docToken)
 
@@ -47,7 +47,7 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 		docToken = node.ObjToken
 	}
 	if docType == "docs" {
-		return errors.Errorf(
+		return "", errors.Errorf(
 			`Feishu Docs is no longer supported. ` +
 				`Please refer to the Readme/Release for v1_support.`)
 	}
@@ -89,7 +89,7 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 				ctx, imgToken, imageDir,
 			)
 			if err != nil {
-				return err
+				return "", err
 			}
 			// Update the image path to be relative to the markdown file
 			relPath := filepath.Join(docName, filepath.Base(localLink))
@@ -108,7 +108,7 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 	// Handle the output directory and name
 	if _, err := os.Stat(opts.outputDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(opts.outputDir, 0o755); err != nil {
-			return err
+			return "", err
 		}
 	}
 
@@ -125,7 +125,7 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 		pdata := utils.PrettyPrint(data)
 
 		if err = os.WriteFile(outputPath, []byte(pdata), 0o644); err != nil {
-			return err
+			return "", err
 		}
 		fmt.Printf("Dumped json response to %s\n", outputPath)
 	}
@@ -147,11 +147,11 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 	}
 	outputPath := filepath.Join(opts.outputDir, mdName)
 	if err = os.WriteFile(outputPath, []byte(result), 0o644); err != nil {
-		return err
+		return "", err
 	}
 	fmt.Printf("已下载 markdown 文件到 %s\n", outputPath)
 
-	return nil
+	return mdName, nil
 }
 
 func downloadDocuments(ctx context.Context, client *core.Client, url string) error {
@@ -192,7 +192,7 @@ func downloadDocuments(ctx context.Context, client *core.Client, url string) err
 				// concurrently download the document
 				wg.Add(1)
 				go func(_url string) {
-					if err := downloadDocument(ctx, client, _url, &opts); err != nil {
+					if _, err := downloadDocument(ctx, client, _url, &opts); err != nil {
 						errChan <- err
 					}
 					wg.Done()
@@ -272,7 +272,7 @@ func downloadWiki(ctx context.Context, client *core.Client, url string) error {
 				wg.Add(1)
 				semaphore <- struct{}{}
 				go func(_url string) {
-					if err := downloadDocument(ctx, client, _url, &opts); err != nil {
+					if _, err := downloadDocument(ctx, client, _url, &opts); err != nil {
 						errChan <- err
 					}
 					wg.Done()
@@ -325,5 +325,6 @@ func handleDownloadCommand(url string) error {
 		return downloadWiki(ctx, client, url)
 	}
 
-	return downloadDocument(ctx, client, url, &dlOpts)
+	_, err = downloadDocument(ctx, client, url, &dlOpts)
+	return err
 }

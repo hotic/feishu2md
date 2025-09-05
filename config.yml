@@ -6,8 +6,10 @@ version: "1.0"
 sync:
   # 输出目录
   output_dir: ./feishu_docs
-  # 同步前是否清空目录
-  clean_before_sync: true
+  # 同步模式选项:
+  # "clean_all": 清空重下 - 每次同步前清空输出目录，重新下载所有文档
+  # "incremental": 增量更新 - 只下载新增或已更新的文档，跳过已存在且未变更的文档
+  sync_mode: incremental
   # 并发下载数
   concurrent_downloads: 10
   # 是否按组织结构存储
@@ -16,6 +18,15 @@ sync:
   skip_images: true
   # 是否使用飞书文档的原始标题名
   use_original_title: true
+
+# 增量同步说明:
+# - 当 sync_mode 为 "incremental" 时:
+#   1. 如果配置中的文档在输出目录中不存在，则会下载
+#   2. 如果文档已存在，会检查云端文档的 RevisionID 与本地元数据比较
+#   3. 如果 RevisionID 不同，说明文档有更新，会重新下载
+#   4. 如果 RevisionID 相同，跳过下载
+# - 使用 --force 标志可以强制清空目录重新下载所有文档
+# - 元数据文件存储在与文档相同的目录下，以 .文档名.meta 格式命名
 
 # 文档列表：需要同步的飞书文档
 # group 不填将直接保存到 output_dir 根目录
