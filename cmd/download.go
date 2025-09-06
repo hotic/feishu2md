@@ -58,6 +58,108 @@ func downloadDocument(ctx context.Context, client *core.Client, url string, opts
 
 	parser := core.NewParser(dlConfig.Output)
 
+	// Collect @mention user OpenIDs, resolve to display names, and set on parser
+	collectMentionOpenIDs := func(blocks []*lark.DocxBlock) []string {
+		ids := make([]string, 0)
+		seen := make(map[string]struct{})
+		addFromText := func(t *lark.DocxBlockText) {
+			if t == nil {
+				return
+			}
+			for _, el := range t.Elements {
+				if el != nil && el.MentionUser != nil {
+					id := el.MentionUser.UserID
+					if id != "" {
+						if _, ok := seen[id]; !ok {
+							seen[id] = struct{}{}
+							ids = append(ids, id)
+						}
+					}
+				}
+			}
+		}
+		for _, b := range blocks {
+			if b.Page != nil {
+				addFromText(b.Page)
+			}
+			if b.Text != nil {
+				addFromText(b.Text)
+			}
+			if b.Heading1 != nil {
+				addFromText(b.Heading1)
+			}
+			if b.Heading2 != nil {
+				addFromText(b.Heading2)
+			}
+			if b.Heading3 != nil {
+				addFromText(b.Heading3)
+			}
+			if b.Heading4 != nil {
+				addFromText(b.Heading4)
+			}
+			if b.Heading5 != nil {
+				addFromText(b.Heading5)
+			}
+			if b.Heading6 != nil {
+				addFromText(b.Heading6)
+			}
+			if b.Heading7 != nil {
+				addFromText(b.Heading7)
+			}
+			if b.Heading8 != nil {
+				addFromText(b.Heading8)
+			}
+			if b.Heading9 != nil {
+				addFromText(b.Heading9)
+			}
+			if b.Bullet != nil {
+				addFromText(b.Bullet)
+			}
+			if b.Ordered != nil {
+				addFromText(b.Ordered)
+			}
+			if b.Code != nil {
+				addFromText(b.Code)
+			}
+			if b.Quote != nil {
+				addFromText(b.Quote)
+			}
+			if b.Equation != nil {
+				addFromText(b.Equation)
+			}
+			if b.Todo != nil {
+				addFromText(b.Todo)
+			}
+		}
+		return ids
+	}
+	mentionIDs := collectMentionOpenIDs(blocks)
+	if len(mentionIDs) > 0 {
+		fmt.Printf("  发现 %d 个 @提及用户，开始解析...\n", len(mentionIDs))
+		nameMap := client.ResolveUserNames(ctx, mentionIDs)
+		parser.SetMentionUserMap(nameMap)
+		// Debug summary to help diagnose permission/config issues
+		resolved := 0
+		unresolvedList := make([]string, 0)
+		for _, id := range mentionIDs {
+			if nameMap[id] != "" {
+				resolved++
+			} else {
+				unresolvedList = append(unresolvedList, id)
+			}
+		}
+		if len(unresolvedList) > 0 {
+			fmt.Printf("  @提及解析: %d/%d 成功，未解析: %v\n", resolved, len(mentionIDs), unresolvedList)
+			if resolved == 0 {
+				fmt.Printf("  💡 提示: 要获取正确的用户名，请:\n")
+				fmt.Printf("     1. 在飞书开放平台为应用添加 'contact:user.base:readonly' 权限\n")
+				fmt.Printf("     2. 或使用飞书网页版导出文档功能 (文件 > 导出 > Word)\n")
+			}
+		} else {
+			fmt.Printf("  @提及解析: %d/%d 成功\n", resolved, len(mentionIDs))
+		}
+	}
+
 	title := docx.Title
 	markdown := parser.ParseDocxContent(docx, blocks)
 

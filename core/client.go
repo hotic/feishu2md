@@ -177,6 +177,83 @@ func (c *Client) GetWikiNodeList(ctx context.Context, spaceID string, parentNode
 	return nodes, nil
 }
 
+// ResolveUserNames tries to resolve a list of user OpenIDs to display names using
+// multiple API approaches. Returns a map[openID]displayName.
+func (c *Client) ResolveUserNames(ctx context.Context, openIDs []string) map[string]string {
+	res := make(map[string]string)
+	if len(openIDs) == 0 {
+		return res
+	}
+
+	// de-duplicate IDs
+	uniq := make([]string, 0, len(openIDs))
+	seen := make(map[string]struct{})
+	for _, id := range openIDs {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniq = append(uniq, id)
+	}
+
+	// Try different approaches
+	for i := 0; i < len(uniq); i += 100 {
+		end := i + 100
+		if end > len(uniq) {
+			end = len(uniq)
+		}
+		batch := uniq[i:end]
+
+		// Method 1: Try BatchGetUser (v1 API with tenant token)
+		resp, _, err := c.larkClient.Contact.BatchGetUser(ctx, &lark.BatchGetUserReq{OpenIDs: batch})
+		if err == nil && resp != nil && len(resp.UserInfos) > 0 {
+			for _, u := range resp.UserInfos {
+				if u != nil && u.OpenID != "" && u.Name != "" {
+					res[u.OpenID] = u.Name
+				}
+			}
+			continue
+		}
+
+		// Method 2: Try GetUser with different UserIDTypes
+		idTypes := []lark.IDType{lark.IDTypeOpenID, lark.IDTypeUserID, lark.IDTypeUnionID}
+
+		for _, idType := range idTypes {
+			successCount := 0
+			for _, id := range batch {
+				r, _, err2 := c.larkClient.Contact.GetUser(ctx, &lark.GetUserReq{
+					UserID:     id,
+					UserIDType: lark.IDTypePtr(idType),
+				})
+
+				if err2 == nil && r != nil && r.User != nil {
+					name := r.User.Name
+					if name == "" {
+						name = r.User.Nickname
+					}
+					if name != "" {
+						res[id] = name
+						successCount++
+					}
+				}
+			}
+			if successCount > 0 {
+				break
+			}
+		}
+
+		// Show summary only once per session
+		if len(res) == 0 {
+			fmt.Printf("  ℹ️  权限生效中，使用占位符显示用户\n")
+		}
+	}
+
+	return res
+}
+
 func (c *Client) GetBitableMeta(ctx context.Context, appToken string) (*lark.GetBitableMetaRespApp, error) {
 	resp, _, err := c.larkClient.Bitable.GetBitableMeta(ctx, &lark.GetBitableMetaReq{
 		AppToken: appToken,

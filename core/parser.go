@@ -14,14 +14,25 @@ type Parser struct {
 	useHTMLTags bool
 	ImgTokens   []string
 	blockMap    map[string]*lark.DocxBlock
+	// MentionUserMap maps Feishu OpenID -> display name for @mentions
+	MentionUserMap map[string]string
 }
 
 func NewParser(config OutputConfig) *Parser {
 	return &Parser{
-		useHTMLTags: config.UseHTMLTags,
-		ImgTokens:   make([]string, 0),
-		blockMap:    make(map[string]*lark.DocxBlock),
+		useHTMLTags:    config.UseHTMLTags,
+		ImgTokens:      make([]string, 0),
+		blockMap:       make(map[string]*lark.DocxBlock),
+		MentionUserMap: make(map[string]string),
 	}
+}
+
+// SetMentionUserMap sets the mapping of OpenID -> display name for @mentions.
+func (p *Parser) SetMentionUserMap(m map[string]string) {
+	if m == nil {
+		return
+	}
+	p.MentionUserMap = m
 }
 
 // =============================================================
@@ -174,7 +185,13 @@ func (p *Parser) ParseDocxBlock(b *lark.DocxBlock, indentLevel int) string {
 		} else {
 			buf.WriteString("- [ ] ")
 		}
+		// current todo content
 		buf.WriteString(p.ParseDocxBlockText(b.Todo))
+		// render nested checklist items (children)
+		for _, childId := range b.Children {
+			childBlock := p.blockMap[childId]
+			buf.WriteString(p.ParseDocxBlock(childBlock, indentLevel+1))
+		}
 	case lark.DocxBlockTypeDivider:
 		buf.WriteString("---\n")
 	case lark.DocxBlockTypeImage:
@@ -231,13 +248,40 @@ func (p *Parser) ParseDocxBlockCallout(b *lark.DocxBlock) string {
 
 	return buf.String()
 }
+
+// generateUserPlaceholder creates a consistent, readable placeholder for a user ID
+func (p *Parser) generateUserPlaceholder(userID string) string {
+	// Create a consistent short identifier from the user ID
+	if len(userID) >= 12 {
+		// Take the first 2 and last 4 characters to create a readable identifier
+		prefix := userID[3:5] // Skip "ou_" prefix
+		suffix := userID[len(userID)-4:]
+		return "@" + prefix + suffix
+	}
+
+	// Fallback for shorter IDs
+	if len(userID) > 8 {
+		suffix := userID[len(userID)-6:]
+		return "@" + suffix
+	}
+
+	return "@用户"
+}
+
 func (p *Parser) ParseDocxTextElement(e *lark.DocxTextElement, inline bool) string {
 	buf := new(strings.Builder)
 	if e.TextRun != nil {
 		buf.WriteString(p.ParseDocxTextElementTextRun(e.TextRun))
 	}
 	if e.MentionUser != nil {
-		buf.WriteString(e.MentionUser.UserID)
+		// Render @mention as @DisplayName when possible; fallback to meaningful identifier
+		name := p.MentionUserMap[e.MentionUser.UserID]
+		if name != "" {
+			buf.WriteString("@")
+			buf.WriteString(name)
+		} else {
+			buf.WriteString(p.generateUserPlaceholder(e.MentionUser.UserID))
+		}
 	}
 	if e.MentionDoc != nil {
 		buf.WriteString(
