@@ -630,7 +630,7 @@ func shouldSyncDocument(ctx context.Context, client *core.Client, doc DocConfig,
 
 	// 非docx文档（如wiki），通过内容哈希检测更新
 	// 获取当前文档内容的哈希值来比较
-	
+
 	// 从元数据中获取上次保存的内容哈希
 	var lastContentHash string
 	for _, line := range lines {
@@ -639,7 +639,7 @@ func shouldSyncDocument(ctx context.Context, client *core.Client, doc DocConfig,
 			break
 		}
 	}
-	
+
 	// 获取当前文档内容并计算哈希
 	currentDocx, currentBlocks, err := client.GetDocxContent(ctx, docToken)
 	if err != nil {
@@ -647,23 +647,23 @@ func shouldSyncDocument(ctx context.Context, client *core.Client, doc DocConfig,
 		fmt.Printf("获取文档 %s 内容失败，重新同步: %v\n", doc.Name, err)
 		return true, nil
 	}
-	
+
 	// 计算当前内容的哈希值（使用文档标题+内容块）
 	parser := core.NewParser(core.OutputConfig{})
 	currentContent := parser.ParseDocxContent(currentDocx, currentBlocks)
 	currentContentHash := fmt.Sprintf("%x", sha256.Sum256([]byte(currentDocx.Title+currentContent)))
-	
+
 	if lastContentHash == "" {
 		// 没有找到内容哈希，需要更新
 		fmt.Printf("文档 %s 没有内容哈希记录，重新同步\n", doc.Name)
 		return true, nil
 	}
-	
+
 	if currentContentHash != lastContentHash {
 		fmt.Printf("检测到文档 %s 内容有更新\n", doc.Name)
 		return true, nil
 	}
-	
+
 	// 内容哈希相同，跳过
 	return false, nil
 }
@@ -892,11 +892,11 @@ func saveDocumentMetadata(ctx context.Context, client *core.Client, doc DocConfi
 	metadataPath := filepath.Join(metadataDir, metadataFileName)
 
 	if docType != "docx" {
-	// 非docx文档，保存简化的元数据（暂时无法检测版本更新）
-	// 对于非docx文档，实际文件名就是 documentName.md
-	actualFileName := fmt.Sprintf("%s.md", documentName)
-	metadata := fmt.Sprintf("URL=%s\nName=%s\nActualFileName=%s\nSyncTime=%s\n",
-		doc.URL, doc.Name, actualFileName, time.Now().Format(time.RFC3339))		// 确保元数据目录存在
+		// 非docx文档，保存简化的元数据（暂时无法检测版本更新）
+		// 对于非docx文档，实际文件名就是 documentName.md
+		actualFileName := fmt.Sprintf("%s.md", documentName)
+		metadata := fmt.Sprintf("URL=%s\nName=%s\nActualFileName=%s\nSyncTime=%s\n",
+			doc.URL, doc.Name, actualFileName, time.Now().Format(time.RFC3339)) // 确保元数据目录存在
 		if err := os.MkdirAll(metadataDir, 0755); err != nil {
 			return nil // 忽略错误
 		}
@@ -917,7 +917,7 @@ func saveDocumentMetadata(ctx context.Context, client *core.Client, doc DocConfi
 
 	// 对于docx文档，实际文件名就是 documentName.md
 	actualFileName := fmt.Sprintf("%s.md", documentName)
-	
+
 	// 创建元数据内容（包含RevisionID用于版本检测）
 	metadata := fmt.Sprintf("URL=%s\nName=%s\nActualFileName=%s\nRevisionID=%d\nSyncTime=%s\n",
 		doc.URL, doc.Name, actualFileName, docx.RevisionID, time.Now().Format(time.RFC3339))
