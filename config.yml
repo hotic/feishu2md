@@ -19,6 +19,36 @@ sync:
   # 是否使用飞书文档的原始标题名
   use_original_title: true
 
+# sync 配置说明:
+# - output_dir: 下载文档的输出目录
+# - sync_mode: "clean_all"(每次清空重下) 或 "incremental"(增量更新)
+# - concurrent_downloads: 并发下载数量 (建议 5-20)
+# - organize_by_group: 是否按 group 分组存储文件
+# - skip_images: 是否跳过图片下载 (减少文件大小)
+# - use_original_title: 是否使用飞书文档的原始标题
+
+merge:
+  # 输入目录（默认使用 sync.output_dir）
+  input_dir: ./feishu_docs
+  # 输出目录
+  output_dir: ./
+  # 输出文件名
+  filename: merged_docs.md
+  # 是否包含时间戳
+  include_timestamp: true
+  # 是否按文件名排序
+  sort_files: true
+  # 文件头标题
+  header_title: "合并的文档集合"
+
+# merge 配置说明:
+# - input_dir: 包含 .md 文件的输入目录
+# - output_dir: 合并后文件的输出目录
+# - filename: 合并后文件的名称
+# - include_timestamp: 是否在文件头包含生成时间
+# - sort_files: 是否按文件名排序处理文档
+# - header_title: 合并文档的标题
+
 # 增量同步说明:
 # - 当 sync_mode 为 "incremental" 时:
 #   1. 如果配置中的文档在输出目录中不存在，则会下载
@@ -31,16 +61,20 @@ sync:
 # 文档列表：需要同步的飞书文档
 # group 不填将直接保存到 output_dir 根目录
 documents:
+  # 示例配置 (请根据需要修改或删除):
   # 普通文档 (markdown)
   - name: 示例文档1
     url: https://example.feishu.cn/wiki/EXAMPLE1
+    group: 示例分组
 
-  # CSV 格式的表格
+  # CSV 格式的表格 (需要 table= 和 view= 参数)
   - name: 示例表格_CSV
     type: csv
-    url: https://example.feishu.cn/wiki/EXAMPLE2
+    url: https://example.feishu.cn/wiki/EXAMPLE2?table=tblXXX&view=vewXXX
 
-  # XLSX 格式的表格
+  # XLSX 格式的表格 (需要 table= 和 view= 参数)
   - name: 示例表格_XLSX
     type: xlsx
-    url: https://example.feishu.cn/wiki/EXAMPLE3
+    url: https://example.feishu.cn/wiki/EXAMPLE3?table=tblXXX&view=vewXXX
+
+  # 实际使用时，请替换为真实的飞书文档 URL

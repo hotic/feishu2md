@@ -12,9 +12,10 @@ import (
 
 // SyncConfig represents the sync configuration structure
 type SyncConfig struct {
-	Version   string       `json:"version" yaml:"version"`
-	Sync      SyncSettings `json:"sync" yaml:"sync"`
-	Documents []DocConfig  `json:"documents" yaml:"documents"`
+	Version   string        `json:"version" yaml:"version"`
+	Sync      SyncSettings  `json:"sync" yaml:"sync"`
+	Merge     MergeSettings `json:"merge" yaml:"merge"`
+	Documents []DocConfig   `json:"documents" yaml:"documents"`
 }
 
 // SyncSettings represents sync-specific settings
@@ -25,6 +26,16 @@ type SyncSettings struct {
 	OrganizeByGroup     bool   `json:"organize_by_group" yaml:"organize_by_group"`
 	SkipImages          bool   `json:"skip_images" yaml:"skip_images"`
 	UseOriginalTitle    bool   `json:"use_original_title" yaml:"use_original_title"`
+}
+
+// MergeSettings represents merge-specific settings
+type MergeSettings struct {
+	InputDir         string `json:"input_dir" yaml:"input_dir"`
+	OutputDir        string `json:"output_dir" yaml:"output_dir"`
+	Filename         string `json:"filename" yaml:"filename"`
+	IncludeTimestamp bool   `json:"include_timestamp" yaml:"include_timestamp"`
+	SortFiles        bool   `json:"sort_files" yaml:"sort_files"`
+	HeaderTitle      string `json:"header_title" yaml:"header_title"`
 }
 
 // DocConfig represents a single document configuration
@@ -50,6 +61,14 @@ func NewSyncConfig() *SyncConfig {
 			OrganizeByGroup:     true,
 			SkipImages:          false,
 		},
+		Merge: MergeSettings{
+			InputDir:         "./feishu_docs",
+			OutputDir:        "./",
+			Filename:         "merged_docs.md",
+			IncludeTimestamp: true,
+			SortFiles:        true,
+			HeaderTitle:      "合并的文档集合",
+		},
 		Documents: []DocConfig{},
 	}
 }
@@ -61,11 +80,15 @@ func GetSyncConfigPath() (string, error) {
 		return "", err
 	}
 	// Check for YAML file first, then JSON
-	yamlPath := filepath.Join(configPath, "feishu2md", "sync_config.yaml")
+	yamlPath := filepath.Join(configPath, "feishu2md", "config.yaml")
 	if _, err := os.Stat(yamlPath); err == nil {
 		return yamlPath, nil
 	}
-	jsonPath := filepath.Join(configPath, "feishu2md", "sync_config.json")
+	ymlPath := filepath.Join(configPath, "feishu2md", "config.yml")
+	if _, err := os.Stat(ymlPath); err == nil {
+		return ymlPath, nil
+	}
+	jsonPath := filepath.Join(configPath, "feishu2md", "config.json")
 	if _, err := os.Stat(jsonPath); err == nil {
 		return jsonPath, nil
 	}
@@ -76,8 +99,12 @@ func GetSyncConfigPath() (string, error) {
 // LoadSyncConfig loads sync configuration from file
 func LoadSyncConfig(path string) (*SyncConfig, error) {
 	if path == "" {
-		// Preference order: local yaml/yml, then user config dir
-		if _, err := os.Stat("sync_config.yaml"); err == nil {
+		// Preference order: local config.yml/config.yaml, then legacy sync_config files, then user config dir
+		if _, err := os.Stat("config.yml"); err == nil {
+			path = "config.yml"
+		} else if _, err := os.Stat("config.yaml"); err == nil {
+			path = "config.yaml"
+		} else if _, err := os.Stat("sync_config.yaml"); err == nil {
 			path = "sync_config.yaml"
 		} else if _, err := os.Stat("sync_config.yml"); err == nil {
 			path = "sync_config.yml"

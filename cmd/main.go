@@ -83,6 +83,7 @@ func main() {
 				},
 			},
 			getSyncCommand(),
+			getMergeCommand(),
 		},
 	}
 
