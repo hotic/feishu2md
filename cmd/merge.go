@@ -1,15 +1,17 @@
 package main
 
 import (
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
-	"time"
+    "fmt"
+    "io/fs"
+    "os"
+    "path/filepath"
+    "sort"
+    "strings"
+    "time"
+    "html"
+    "regexp"
 
-	"github.com/urfave/cli/v2"
+    "github.com/urfave/cli/v2"
 )
 
 type MergeOpts struct {
@@ -253,7 +255,7 @@ func mergeMarkdownFiles(files []string, outputPath string, mergeConfig MergeSett
 
 		writeStr := contentStr
 		if !original {
-			writeStr = compactMarkdown(contentStr)
+			writeStr = compactMarkdown(contentStr, mergeConfig)
 		}
 		if _, err := outputFile.WriteString(writeStr); err != nil {
 			return err
@@ -286,31 +288,60 @@ func mergeMarkdownFiles(files []string, outputPath string, mergeConfig MergeSett
 }
 
 // 保持代码块不变；移除 HR；图片转 [img]；链接转 文本 [url]；裸 URL -> [url]；压缩标准表格
-func compactMarkdown(input string) string {
-	lines := strings.Split(input, "\n")
-	var out []string
-	inCode := false
-	fence := ""
+func compactMarkdown(input string, mergeConfig MergeSettings) string {
+    lines := strings.Split(input, "\n")
+    var out []string
+    inCode := false
+    fence := ""
 
-	i := 0
-	for i < len(lines) {
-		line := lines[i]
-		trimmed := strings.TrimSpace(line)
+    i := 0
+    for i < len(lines) {
+        line := lines[i]
+        trimmed := strings.TrimSpace(line)
 
-		// 代码围栏
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			mark := trimmed[:3]
-			if !inCode {
-				inCode = true
-				fence = mark
-			} else if strings.HasPrefix(trimmed, fence) {
-				inCode = false
-				fence = ""
-			}
-			out = append(out, line)
-			i++
-			continue
-		}
+        // HTML 表格压缩：检测 <table> ... </table>
+        if !inCode && strings.Contains(strings.ToLower(trimmed), "<table") {
+            // 收集整个表格块
+            start := i
+            j := i
+            foundEnd := false
+            for j < len(lines) {
+                if strings.Contains(strings.ToLower(lines[j]), "</table>") {
+                    foundEnd = true
+                    break
+                }
+                j++
+            }
+            if foundEnd {
+                tableBlock := strings.Join(lines[start:j+1], "\n")
+                dict := compressHTMLTableBlock(tableBlock, mergeConfig)
+                if dict != "" {
+                    out = append(out, dict)
+                    i = j + 1
+                    continue
+                }
+                // 如果无法压缩，原样输出
+                out = append(out, lines[start:j+1]...)
+                i = j + 1
+                continue
+            }
+            // 未找到闭合标签，则继续常规处理
+        }
+
+        // 代码围栏
+        if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+            mark := trimmed[:3]
+            if !inCode {
+                inCode = true
+                fence = mark
+            } else if strings.HasPrefix(trimmed, fence) {
+                inCode = false
+                fence = ""
+            }
+            out = append(out, line)
+            i++
+            continue
+        }
 
 		if inCode {
 			out = append(out, line)
@@ -469,5 +500,187 @@ func replaceBareURL(s string) string {
 		}
 		s = s[:idx] + "[url]" + s[end:]
 	}
-	return s
+    return s
+}
+
+// ---------- HTML Table compaction ----------
+func compressHTMLTableBlock(tableHTML string, mergeConfig MergeSettings) string {
+    // Extract <tr> rows
+    trRe := regexp.MustCompile(`(?is)<tr[^>]*>(.*?)</tr>`)
+    tdRe := regexp.MustCompile(`(?is)<td[^>]*>(.*?)</td>`)
+    brRe := regexp.MustCompile(`(?is)<br\s*/?>`)
+    tagRe := regexp.MustCompile(`(?is)<[^>]+>`) // strip any remaining tags
+
+    // Helper to clean cell text
+    clean := func(s string) string {
+        s = brRe.ReplaceAllString(s, " ")
+        s = tagRe.ReplaceAllString(s, "")
+        s = html.UnescapeString(s)
+        s = strings.ReplaceAll(s, "**", "")
+        s = strings.TrimSpace(s)
+        // trim outer backticks
+        if strings.HasPrefix(s, "`") && strings.HasSuffix(s, "`") && len(s) >= 2 {
+            s = strings.TrimSuffix(strings.TrimPrefix(s, "`"), "`")
+        }
+        return s
+    }
+
+    // Build table: slice of rows
+    var rows [][]string
+    for _, m := range trRe.FindAllStringSubmatch(tableHTML, -1) {
+        inner := m[1]
+        var cells []string
+        for _, c := range tdRe.FindAllStringSubmatch(inner, -1) {
+            cells = append(cells, clean(c[1]))
+        }
+        // skip empty rows
+        nonEmpty := false
+        for _, c := range cells {
+            if strings.TrimSpace(c) != "" {
+                nonEmpty = true
+                break
+            }
+        }
+        if nonEmpty {
+            rows = append(rows, cells)
+        }
+    }
+
+    if len(rows) == 0 {
+        return ""
+    }
+
+    // Detect header keywords to decide grouping strategy
+    hasHeader := false
+    headerKeys := mergeConfig.GroupHeaderKeywords
+    if len(rows) > 0 {
+        headerJoined := strings.Join(rows[0], " ")
+        cnt := 0
+        for _, k := range headerKeys {
+            if strings.Contains(headerJoined, k) {
+                cnt++
+            }
+        }
+        if cnt >= 2 {
+            hasHeader = true
+        }
+    }
+
+    // If looks like category table with 3-4 cols, group by first col
+    if hasHeader {
+        type group struct{ name string }
+        groupOrder := []string{}
+        itemsByGroup := map[string][]string{}
+        currentGroup := ""
+
+        for idx, row := range rows {
+            // skip header row
+            if idx == 0 {
+                continue
+            }
+            // Identify group/code/name by column count
+            g, code, cn := "", "", ""
+            if len(row) >= 4 {
+                g, code, cn = row[0], row[1], row[2]
+            } else if len(row) == 3 {
+                // likely no group cell due to rowspan
+                g, code, cn = "", row[0], row[1]
+            } else if len(row) == 2 {
+                g, code = "", row[0]
+                cn = row[1]
+            } else {
+                continue
+            }
+
+            if strings.TrimSpace(g) != "" {
+                currentGroup = g
+                if _, ok := itemsByGroup[currentGroup]; !ok {
+                    groupOrder = append(groupOrder, currentGroup)
+                    itemsByGroup[currentGroup] = []string{}
+                }
+            }
+
+            if currentGroup == "" {
+                // can't place without a group
+                continue
+            }
+
+            code = strings.TrimSpace(code)
+            cn = strings.TrimSpace(cn)
+            if code == "" {
+                continue
+            }
+            item := code
+            if cn != "" {
+                item = fmt.Sprintf("%s(%s)", code, cn)
+            }
+            itemsByGroup[currentGroup] = append(itemsByGroup[currentGroup], item)
+        }
+
+        // If no groups collected, fall back to generic
+        if len(itemsByGroup) == 0 {
+            return genericHTMLTableToLines(rows, mergeConfig)
+        }
+
+        var b strings.Builder
+        for idx, g := range groupOrder {
+            it := itemsByGroup[g]
+            if len(it) == 0 {
+                continue
+            }
+            if idx > 0 {
+                b.WriteString("\n")
+            }
+            b.WriteString(fmt.Sprintf("%s: %s", g, strings.Join(it, ", ")))
+        }
+        return b.String()
+    }
+
+    // Fallback: generic colon-joined rows
+    return genericHTMLTableToLines(rows, mergeConfig)
+}
+
+func genericHTMLTableToLines(rows [][]string, mergeConfig MergeSettings) string {
+    if len(rows) == 0 {
+        return ""
+    }
+    // Try to detect header row and skip
+    start := 0
+    if looksHeaderRow(rows[0], mergeConfig.HeaderKeywords) {
+        start = 1
+    }
+    var out []string
+    for i := start; i < len(rows); i++ {
+        cells := rows[i]
+        vals := make([]string, 0, len(cells))
+        for _, c := range cells {
+            if c == "[img]" || c == "img" {
+                continue
+            }
+            vals = append(vals, strings.TrimSpace(c))
+        }
+        if len(vals) == 0 {
+            continue
+        }
+        out = append(out, strings.Join(vals, ":"))
+    }
+    return strings.Join(out, "\n")
+}
+
+func looksHeaderRow(cells []string, keywords []string) bool {
+    if len(cells) == 0 {
+        return false
+    }
+    joined := strings.Join(cells, " ")
+    keys := keywords
+    if len(keys) == 0 {
+        return false
+    }
+    hits := 0
+    for _, k := range keys {
+        if strings.Contains(joined, k) {
+            hits++
+        }
+    }
+    return hits >= 1
 }
