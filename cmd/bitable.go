@@ -1,16 +1,17 @@
 package main
 
 import (
-	"context"
-	"encoding/csv"
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strings"
-	"time"
+    "context"
+    "encoding/csv"
+    "errors"
+    "fmt"
+    "os"
+    "path/filepath"
+    "regexp"
+    "sort"
+    "strings"
+    "strconv"
+    "time"
 
 	"github.com/Wsine/feishu2md/core"
 	"github.com/Wsine/feishu2md/utils"
@@ -77,7 +78,7 @@ func exportBitable(ctx context.Context, client *core.Client, url string, format 
 	if viewID != "" {
 		viewPtr = &viewID
 	}
-	fields, err := client.GetBitableFieldList(ctx, appToken, tableID, viewPtr)
+    fields, err := client.GetBitableFieldList(ctx, appToken, tableID, viewPtr)
 	if err != nil {
 		return "", fmt.Errorf("get fields failed: %w", err)
 	}
@@ -87,40 +88,76 @@ func exportBitable(ctx context.Context, client *core.Client, url string, format 
 
 	// Build mapping for select options by field id
 	// fieldInfo is declared at package level for reuse in helpers
-	ordered := make([]fieldInfo, 0, len(fields))
-	for _, f := range fields {
-		ordered = append(ordered, fieldInfo{
-			id:   f.FieldID,
-			name: f.FieldName,
-			typ:  f.Type,
-			prop: f.Property,
-		})
-	}
+    ordered := make([]fieldInfo, 0, len(fields))
+    for _, f := range fields {
+        ordered = append(ordered, fieldInfo{
+            id:   f.FieldID,
+            name: f.FieldName,
+            typ:  f.Type,
+            prop: f.Property,
+        })
+    }
+
+    // Hide system fields by default to mimic Feishu web export
+    if !isTruthy(os.Getenv("FEISHU2MD_INCLUDE_SYSTEM_FIELDS")) {
+        filtered := make([]fieldInfo, 0, len(ordered))
+        for _, c := range ordered {
+            if c.typ == 1001 || c.typ == 1002 || c.typ == 1003 || c.typ == 1004 || c.typ == 1005 {
+                continue
+            }
+            filtered = append(filtered, c)
+        }
+        ordered = filtered
+    }
 
 	// Pull records (paged)
-	pageSize := int64(500)
-	var pageToken *string
-	rows := make([][]string, 0, 1024)
+    pageSize := int64(500)
+    var pageToken *string
+    rows := make([][]string, 0, 1024)
+    appliedVisible := false
 
-	for {
-		resp, err := client.GetBitableRecordPage(ctx, appToken, tableID, viewPtr, pageToken, pageSize)
-		if err != nil {
-			return "", fmt.Errorf("list records failed: %w", err)
-		}
-		for _, item := range resp.Items {
-			row := make([]string, 0, len(ordered))
-			isCSV := strings.EqualFold(format, "csv")
-			for _, col := range ordered {
-				val := extractField(item.Fields, col.id, col.name)
-				row = append(row, formatFieldValue(col, val, isCSV))
-			}
-			rows = append(rows, row)
-		}
-		if !resp.HasMore || resp.PageToken == "" {
-			break
-		}
-		pageToken = &resp.PageToken
-	}
+    for {
+        resp, err := client.GetBitableRecordPage(ctx, appToken, tableID, viewPtr, pageToken, pageSize)
+        if err != nil {
+            return "", fmt.Errorf("list records failed: %w", err)
+        }
+
+        // Shrink columns to those visible in view (based on actual record field keys)
+        if !appliedVisible {
+            visible := map[string]bool{}
+            for _, it := range resp.Items {
+                for k := range it.Fields {
+                    visible[strings.ToLower(k)] = true
+                }
+            }
+            if len(visible) > 0 {
+                filtered := make([]fieldInfo, 0, len(ordered))
+                for _, c := range ordered {
+                    if visible[strings.ToLower(c.name)] || visible[strings.ToLower(c.id)] {
+                        filtered = append(filtered, c)
+                    }
+                }
+                if len(filtered) > 0 {
+                    ordered = filtered
+                }
+            }
+            appliedVisible = true
+        }
+
+        for _, item := range resp.Items {
+            row := make([]string, 0, len(ordered))
+            isCSV := strings.EqualFold(format, "csv")
+            for _, col := range ordered {
+                val := extractField(item.Fields, col.id, col.name)
+                row = append(row, formatFieldValue(col, val, isCSV))
+            }
+            rows = append(rows, row)
+        }
+        if !resp.HasMore || resp.PageToken == "" {
+            break
+        }
+        pageToken = &resp.PageToken
+    }
 
 	// Compose header
 	headers := make([]string, 0, len(ordered))
@@ -441,8 +478,9 @@ func formatFieldValue(col fieldInfo, v interface{}, isCSV bool) string {
 		return mapSelectOptionName(col.prop, v)
 	case 4: // multi select
 		return joinList(v, func(x interface{}) string { return mapSelectOptionName(col.prop, x) })
-	case 5: // date/time
-		return fmt.Sprint(v)
+    case 5: // date/time
+        if s := formatTimeValue(v); s != "" { return s }
+        return fmt.Sprint(v)
 	case 7: // checkbox
 		return fmt.Sprint(v)
 	case 11: // user
@@ -454,12 +492,9 @@ func formatFieldValue(col fieldInfo, v interface{}, isCSV bool) string {
 		return fmt.Sprint(v)
 	case 17: // attachment
 		return joinList(v, func(x interface{}) string { return pickStringField(x, "name") })
-	case 18: // relation (single)
-		if isCSV {
-			return ""
-		} // 对齐飞书 CSV 导出行为
-		// Handle both single map and array of maps
-		return joinList(v, func(x interface{}) string {
+    case 18: // relation (single)
+        // Handle both single map and array of maps
+        return joinList(v, func(x interface{}) string {
 			if m, ok := x.(map[string]interface{}); ok {
 				// Debug: print the structure to understand the data
 				// fmt.Printf("DEBUG relation field: %+v\n", m)
@@ -494,12 +529,9 @@ func formatFieldValue(col fieldInfo, v interface{}, isCSV bool) string {
 			}
 			return fmt.Sprint(x)
 		})
-	case 21: // bi-direction relation
-		if isCSV {
-			return ""
-		}
-		return joinList(v, func(x interface{}) string {
-			if m, ok := x.(map[string]interface{}); ok {
+    case 21: // bi-direction relation
+        return joinList(v, func(x interface{}) string {
+            if m, ok := x.(map[string]interface{}); ok {
 				if arr, ok := m["text_arr"].([]interface{}); ok && len(arr) > 0 {
 					parts := make([]string, 0, len(arr))
 					for _, t := range arr {
@@ -515,10 +547,15 @@ func formatFieldValue(col fieldInfo, v interface{}, isCSV bool) string {
 			}
 			return fmt.Sprint(x)
 		})
-	default:
-		// unknown or complex types: best effort string
-		return fmt.Sprint(v)
-	}
+    case 1001, 1002: // create/update time
+        if s := formatTimeValue(v); s != "" { return s }
+        return fmt.Sprint(v)
+    case 1003, 1004: // created/modified by (user)
+        return joinList(v, func(x interface{}) string { return pickStringField(x, "name") })
+    default:
+        // unknown or complex types: best effort string
+        return fmt.Sprint(v)
+    }
 }
 
 func mapSelectOptionName(prop *lark.GetBitableFieldListRespItemProperty, v interface{}) string {
@@ -612,12 +649,66 @@ func sanitizeFileName(name string) string {
 }
 
 func excelColumnName(n int) string {
-	// 1 -> A, 27 -> AA
-	name := ""
-	for n > 0 {
-		n--
-		name = string('A'+(n%26)) + name
-		n /= 26
-	}
-	return name
+    // 1 -> A, 27 -> AA
+    name := ""
+    for n > 0 {
+        n--
+        name = string('A'+(n%26)) + name
+        n /= 26
+    }
+    return name
+}
+
+// isTruthy checks common true-like strings ("1","true","yes")
+func isTruthy(s string) bool {
+    switch strings.ToLower(strings.TrimSpace(s)) {
+    case "1", "true", "yes", "y", "on":
+        return true
+    default:
+        return false
+    }
+}
+
+// formatTimeValue tries to render timestamp numbers into readable time.
+// Supports seconds or milliseconds since epoch, also scientific notation strings.
+func formatTimeValue(v interface{}) string {
+    toInt := func(x interface{}) (int64, bool) {
+        switch t := x.(type) {
+        case int64:
+            return t, true
+        case int:
+            return int64(t), true
+        case float64:
+            // Large timestamps may come as float; round sensibly
+            return int64(t + 0.5), true
+        case string:
+            s := strings.TrimSpace(t)
+            if s == "" {
+                return 0, false
+            }
+            // try integer first
+            if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+                return n, true
+            }
+            // fall back to float (handles scientific notation)
+            if f, err := strconv.ParseFloat(s, 64); err == nil {
+                return int64(f + 0.5), true
+            }
+            return 0, false
+        default:
+            return 0, false
+        }
+    }
+
+    n, ok := toInt(v)
+    if !ok || n == 0 {
+        return ""
+    }
+    // Detect ms vs s
+    // Threshold: anything > 10^11 very likely ms
+    if n > 100_000_000_000 { // ~ 1973-03-03 in ms threshold
+        sec := n / 1000
+        return time.Unix(sec, 0).Format("2006-01-02 15:04:05")
+    }
+    return time.Unix(n, 0).Format("2006-01-02 15:04:05")
 }
