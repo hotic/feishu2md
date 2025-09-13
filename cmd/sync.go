@@ -452,8 +452,13 @@ func syncDocument(ctx context.Context, client *core.Client, doc DocConfig, outpu
 		return nil
 	case "folder":
 		return downloadDocuments(ctx, client, doc.URL)
-	case "csv":
-		actualFileName, err := exportBitable(ctx, client, doc.URL, "csv", outputDir, docName)
+    case "csv":
+        // 视图字段导出策略：单文档优先于全局
+        viewFieldsOnly := syncSettings.BitableViewFieldsOnly
+        if doc.BitableViewFieldsOnly != nil {
+            viewFieldsOnly = *doc.BitableViewFieldsOnly
+        }
+        actualFileName, err := exportBitable(ctx, client, doc.URL, "csv", outputDir, docName, viewFieldsOnly)
 		if err != nil {
 			return err
 		}
@@ -462,8 +467,12 @@ func syncDocument(ctx context.Context, client *core.Client, doc DocConfig, outpu
 			return saveDocumentMetadataWithFileName(ctx, client, doc, outputDir, syncSettings, actualFileName)
 		}
 		return nil
-	case "xlsx":
-		actualFileName, err := exportBitable(ctx, client, doc.URL, "xlsx", outputDir, docName)
+    case "xlsx":
+        viewFieldsOnly := syncSettings.BitableViewFieldsOnly
+        if doc.BitableViewFieldsOnly != nil {
+            viewFieldsOnly = *doc.BitableViewFieldsOnly
+        }
+        actualFileName, err := exportBitable(ctx, client, doc.URL, "xlsx", outputDir, docName, viewFieldsOnly)
 		if err != nil {
 			return err
 		}

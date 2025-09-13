@@ -18,17 +18,22 @@ import (
 	"github.com/chyroc/lark"
 )
 
+// 字段元信息（按视图顺序排列）
 type fieldInfo struct {
-	id   string
-	name string
-	typ  int64
-	prop *lark.GetBitableFieldListRespItemProperty
+    id   string
+    name string
+    typ  int64
+    prop *lark.GetBitableFieldListRespItemProperty
 }
 
 // exportBitable exports a Feishu Bitable view to CSV or XLSX
 // url must contain table=tbl... and may contain view=vew...
 // Returns the actual filename of the generated file
-func exportBitable(ctx context.Context, client *core.Client, url string, format string, outputDir string, preferName string) (string, error) {
+// 导出多维表格为 CSV/XLSX。
+// url 必须包含 table=tbl...；若包含 view=vew... 将按视图顺序组织列。
+// preferName 为空时，文件名采用 App_表_视图；否则使用自定义名称。
+// viewFieldsOnly 为 true 时，仅导出该视图中“可见”的字段（尽量贴近 Web 导出）。
+func exportBitable(ctx context.Context, client *core.Client, url string, format string, outputDir string, preferName string, viewFieldsOnly bool) (string, error) {
 	// Extract tbl/vew from URL
 	tableID, viewID := utils.ExtractBitableParams(url)
 	if tableID == "" {
@@ -123,7 +128,7 @@ func exportBitable(ctx context.Context, client *core.Client, url string, format 
         }
 
         // Shrink columns to those visible in view (based on actual record field keys)
-        if !appliedVisible {
+        if viewFieldsOnly && !appliedVisible {
             visible := map[string]bool{}
             for _, it := range resp.Items {
                 for k := range it.Fields {
