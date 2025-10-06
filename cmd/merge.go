@@ -150,20 +150,62 @@ func handleGroupsMerge(config *SyncConfig, groupsConfig *GroupsConfig) error {
 		var groupCSVFiles []string
 		missingDocs := []string{}
 
+		// 检查是否使用通配符
+		wildcardType := "" // "", "*", "*.md", "*.csv"
 		for _, docName := range group.Includes {
-			if filePath, ok := docNameToPath[docName]; ok {
-				if strings.HasSuffix(strings.ToLower(filePath), ".csv") {
-					groupCSVFiles = append(groupCSVFiles, filePath)
-				} else {
-					groupFiles = append(groupFiles, filePath)
-				}
-			} else {
-				missingDocs = append(missingDocs, docName)
+			if docName == "*" || docName == "*.md" || docName == "*.csv" {
+				wildcardType = docName
+				break
 			}
 		}
 
-		if len(missingDocs) > 0 {
-			fmt.Printf("  ⚠️  未找到文档: %s\n", strings.Join(missingDocs, ", "))
+		if wildcardType != "" {
+			// 使用通配符包含文档
+			switch wildcardType {
+			case "*":
+				// 包含所有文档
+				for _, filePath := range allFiles {
+					if strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+						groupCSVFiles = append(groupCSVFiles, filePath)
+					} else {
+						groupFiles = append(groupFiles, filePath)
+					}
+				}
+				fmt.Printf("  📦 使用通配符 '*'：包含所有文档 (%d 个)\n", len(allFiles))
+			case "*.md":
+				// 仅包含 Markdown 文档
+				for _, filePath := range allFiles {
+					if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+						groupFiles = append(groupFiles, filePath)
+					}
+				}
+				fmt.Printf("  📦 使用通配符 '*.md'：包含所有 Markdown 文档 (%d 个)\n", len(groupFiles))
+			case "*.csv":
+				// 仅包含 CSV 文档
+				for _, filePath := range allFiles {
+					if strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+						groupCSVFiles = append(groupCSVFiles, filePath)
+					}
+				}
+				fmt.Printf("  📦 使用通配符 '*.csv'：包含所有 CSV 文档 (%d 个)\n", len(groupCSVFiles))
+			}
+		} else {
+			// 按指定的文档名收集
+			for _, docName := range group.Includes {
+				if filePath, ok := docNameToPath[docName]; ok {
+					if strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+						groupCSVFiles = append(groupCSVFiles, filePath)
+					} else {
+						groupFiles = append(groupFiles, filePath)
+					}
+				} else {
+					missingDocs = append(missingDocs, docName)
+				}
+			}
+
+			if len(missingDocs) > 0 {
+				fmt.Printf("  ⚠️  未找到文档: %s\n", strings.Join(missingDocs, ", "))
+			}
 		}
 
 		if len(groupFiles) == 0 && len(groupCSVFiles) == 0 {
