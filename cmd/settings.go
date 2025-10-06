@@ -293,4 +293,42 @@ func (c *SyncConfig) GetDocuments(group string) []DocConfig {
 	return docs
 }
 
+// GroupsConfig represents the groups configuration structure
+type GroupsConfig struct {
+	Version string        `json:"version" yaml:"version"`
+	Groups  []GroupConfig `json:"groups" yaml:"groups"`
+}
+
+// GroupConfig represents a single group configuration
+type GroupConfig struct {
+	Name     string   `json:"name" yaml:"name"`
+	Includes []string `json:"includes" yaml:"includes"`
+}
+
+// LoadGroupsConfig loads groups configuration from file
+func LoadGroupsConfig(path string) (*GroupsConfig, error) {
+	if path == "" {
+		// Default to groups.yml in current directory
+		if _, err := os.Stat("groups.yml"); err == nil {
+			path = "groups.yml"
+		} else if _, err := os.Stat("groups.yaml"); err == nil {
+			path = "groups.yaml"
+		} else {
+			return nil, fmt.Errorf("groups.yml not found")
+		}
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var config GroupsConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("invalid YAML format: %v", err)
+	}
+
+	return &config, nil
+}
+
 // (removed unused helpers)

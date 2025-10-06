@@ -19,6 +19,7 @@ type MergeOpts struct {
 	outputDir  string
 	filename   string
 	configPath string
+	groupsPath string
 	original   bool
 }
 
@@ -36,6 +37,13 @@ func getMergeCommand() *cli.Command {
 				Value:       "",
 				Usage:       "Path to config file (defaults to config.yml in current directory)",
 				Destination: &mergeOpts.configPath,
+			},
+			&cli.StringFlag{
+				Name:        "groups",
+				Aliases:     []string{"g"},
+				Value:       "",
+				Usage:       "Path to groups config file (defaults to groups.yml in current directory)",
+				Destination: &mergeOpts.groupsPath,
 			},
 			&cli.StringFlag{
 				Name:        "input",
@@ -79,6 +87,131 @@ func handleMergeCommand() error {
 		return fmt.Errorf("加载配置文件失败: %v", err)
 	}
 
+	// 检查是否使用 groups 配置
+	groupsConfig, err := LoadGroupsConfig(mergeOpts.groupsPath)
+	if err == nil {
+		// 使用 groups 配置进行分组合并
+		return handleGroupsMerge(config, groupsConfig)
+	}
+
+	// 使用传统的单文件合并模式
+	return handleLegacyMerge(config)
+}
+
+// handleGroupsMerge 处理基于 groups.yml 的分组合并
+func handleGroupsMerge(config *SyncConfig, groupsConfig *GroupsConfig) error {
+	fmt.Printf("🚀 使用分组配置进行合并...\n")
+	fmt.Printf("📋 发现 %d 个分组\n\n", len(groupsConfig.Groups))
+
+	inputDir := config.Sync.OutputDir
+	if config.Merge.InputDir != "" {
+		inputDir = config.Merge.InputDir
+	}
+
+	// 检查输入目录是否存在
+	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
+		return fmt.Errorf("输入目录不存在: %s", inputDir)
+	}
+
+	// 清空 docs 目录下的所有内容
+	docsBaseDir := "./docs"
+	fmt.Printf("🧹 清理 docs 目录...\n")
+	if err := cleanDirectory(docsBaseDir); err != nil {
+		fmt.Printf("⚠️  清理目录时出现警告: %v\n", err)
+	}
+
+	// 构建文档名到文件路径的映射
+	docNameToPath := make(map[string]string)
+	allFiles, err := findMarkdownFiles(inputDir)
+	if err != nil {
+		return fmt.Errorf("查找文件失败: %v", err)
+	}
+	csvFiles, err := findCSVFiles(inputDir)
+	if err != nil {
+		return fmt.Errorf("查找 CSV 文件失败: %v", err)
+	}
+	allFiles = append(allFiles, csvFiles...)
+
+	for _, filePath := range allFiles {
+		baseName := filepath.Base(filePath)
+		// 移除扩展名
+		ext := filepath.Ext(baseName)
+		nameWithoutExt := strings.TrimSuffix(baseName, ext)
+		docNameToPath[nameWithoutExt] = filePath
+	}
+
+	// 处理每个分组
+	successCount := 0
+	for i, group := range groupsConfig.Groups {
+		fmt.Printf("\n[%d/%d] 处理分组: %s\n", i+1, len(groupsConfig.Groups), group.Name)
+
+		// 收集该分组需要的文件
+		var groupFiles []string
+		var groupCSVFiles []string
+		missingDocs := []string{}
+
+		for _, docName := range group.Includes {
+			if filePath, ok := docNameToPath[docName]; ok {
+				if strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+					groupCSVFiles = append(groupCSVFiles, filePath)
+				} else {
+					groupFiles = append(groupFiles, filePath)
+				}
+			} else {
+				missingDocs = append(missingDocs, docName)
+			}
+		}
+
+		if len(missingDocs) > 0 {
+			fmt.Printf("  ⚠️  未找到文档: %s\n", strings.Join(missingDocs, ", "))
+		}
+
+		if len(groupFiles) == 0 && len(groupCSVFiles) == 0 {
+			fmt.Printf("  ⚠️  跳过: 没有找到任何文件\n")
+			continue
+		}
+
+		// 创建分组输出目录
+		groupOutputDir := filepath.Join("./docs", group.Name)
+		if err := os.MkdirAll(groupOutputDir, 0755); err != nil {
+			return fmt.Errorf("创建输出目录失败: %v", err)
+		}
+
+		// 合并 Markdown 文件
+		if len(groupFiles) > 0 {
+			if config.Merge.SortFiles {
+				sort.Strings(groupFiles)
+			}
+
+			mdOutputPath := filepath.Join(groupOutputDir, fmt.Sprintf("%s知识库.txt", group.Name))
+			if err := mergeMarkdownFiles(groupFiles, mdOutputPath, config.Merge, mergeOpts.original); err != nil {
+				return fmt.Errorf("合并 Markdown 文件失败: %v", err)
+			}
+			fmt.Printf("  ✅ Markdown: %d 个文件 -> %s\n", len(groupFiles), mdOutputPath)
+		}
+
+		// 合并 CSV 文件
+		if len(groupCSVFiles) > 0 {
+			if config.Merge.SortFiles {
+				sort.Strings(groupCSVFiles)
+			}
+
+			csvOutputPath := filepath.Join(groupOutputDir, fmt.Sprintf("%s数据表.txt", group.Name))
+			if err := mergeCSVFilesToMarkdown(groupCSVFiles, csvOutputPath, config.Merge); err != nil {
+				return fmt.Errorf("合并 CSV 文件失败: %v", err)
+			}
+			fmt.Printf("  ✅ CSV: %d 个文件 -> %s\n", len(groupCSVFiles), csvOutputPath)
+		}
+
+		successCount++
+	}
+
+	fmt.Printf("\n🎉 完成！成功处理 %d/%d 个分组\n", successCount, len(groupsConfig.Groups))
+	return nil
+}
+
+// handleLegacyMerge 处理传统的单文件合并模式
+func handleLegacyMerge(config *SyncConfig) error {
 	// 使用命令行参数覆盖配置文件设置
 	inputDir := mergeOpts.inputDir
 	if inputDir == "" {
@@ -772,4 +905,56 @@ func looksHeaderRow(cells []string, keywords []string) bool {
 		}
 	}
 	return hits >= 1
+}
+
+// cleanDirectory 清空指定目录下的所有内容（但保留目录本身）
+func cleanDirectory(dir string) error {
+	// 检查目录是否存在
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		// 目录不存在，创建它
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("创建目录 %s 失败: %v", dir, err)
+		}
+		return nil
+	}
+
+	// 读取目录内容
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("读取目录 %s 失败: %v", dir, err)
+	}
+
+	// 删除所有内容
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("删除 %s 失败: %v", path, err)
+		}
+		fmt.Printf("  🗑️  已删除: %s\n", entry.Name())
+	}
+
+	return nil
+}
+
+// cleanGroupDirectories 清理 docs 目录下的分组子目录（已弃用，保留用于兼容）
+func cleanGroupDirectories(docsBaseDir string, groupsConfig *GroupsConfig) error {
+	// 检查 docs 目录是否存在
+	if _, err := os.Stat(docsBaseDir); os.IsNotExist(err) {
+		// 目录不存在，无需清理
+		return nil
+	}
+
+	// 遍历所有分组，删除对应的子目录
+	for _, group := range groupsConfig.Groups {
+		groupDir := filepath.Join(docsBaseDir, group.Name)
+		if _, err := os.Stat(groupDir); err == nil {
+			// 目录存在，删除它
+			if err := os.RemoveAll(groupDir); err != nil {
+				return fmt.Errorf("删除目录 %s 失败: %v", groupDir, err)
+			}
+			fmt.Printf("  🗑️  已删除: %s\n", groupDir)
+		}
+	}
+
+	return nil
 }
