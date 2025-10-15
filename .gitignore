@@ -26,3 +26,4 @@ node_modules
 .next
 .vercel
 .vscode/**
+.DS_Store
