@@ -331,12 +331,16 @@ func (c *Client) GetBitableFieldList(ctx context.Context, appToken, tableID stri
 }
 
 func (c *Client) GetBitableRecordPage(ctx context.Context, appToken, tableID string, viewID *string, pageToken *string, pageSize int64) (*lark.GetBitableRecordListResp, error) {
+	textFieldAsArray := true
+	displayFormulaRef := true
 	req := &lark.GetBitableRecordListReq{
-		AppToken:  appToken,
-		TableID:   tableID,
-		ViewID:    viewID,
-		PageToken: pageToken,
-		PageSize:  &pageSize,
+		AppToken:          appToken,
+		TableID:           tableID,
+		ViewID:            viewID,
+		PageToken:         pageToken,
+		PageSize:          &pageSize,
+		TextFieldAsArray:  &textFieldAsArray,
+		DisplayFormulaRef: &displayFormulaRef,
 	}
 	return c.getBitableRecordList(ctx, req)
 }
