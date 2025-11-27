@@ -458,7 +458,12 @@ func syncDocument(ctx context.Context, client *core.Client, doc DocConfig, outpu
         if doc.BitableViewFieldsOnly != nil {
             viewFieldsOnly = *doc.BitableViewFieldsOnly
         }
-        actualFileName, err := exportBitable(ctx, client, doc.URL, "csv", outputDir, docName, viewFieldsOnly)
+        // 图片过滤策略：单文档优先于全局
+        filterImages := syncSettings.FilterImageReferences
+        if doc.FilterImageReferences != nil {
+            filterImages = *doc.FilterImageReferences
+        }
+        actualFileName, err := exportBitable(ctx, client, doc.URL, "csv", outputDir, docName, viewFieldsOnly, filterImages)
 		if err != nil {
 			return err
 		}
@@ -472,7 +477,12 @@ func syncDocument(ctx context.Context, client *core.Client, doc DocConfig, outpu
         if doc.BitableViewFieldsOnly != nil {
             viewFieldsOnly = *doc.BitableViewFieldsOnly
         }
-        actualFileName, err := exportBitable(ctx, client, doc.URL, "xlsx", outputDir, docName, viewFieldsOnly)
+        // 图片过滤策略：单文档优先于全局
+        filterImages := syncSettings.FilterImageReferences
+        if doc.FilterImageReferences != nil {
+            filterImages = *doc.FilterImageReferences
+        }
+        actualFileName, err := exportBitable(ctx, client, doc.URL, "xlsx", outputDir, docName, viewFieldsOnly, filterImages)
 		if err != nil {
 			return err
 		}

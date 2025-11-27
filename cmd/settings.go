@@ -27,8 +27,10 @@ type SyncSettings struct {
 	SkipImages          bool   `json:"skip_images" yaml:"skip_images"`
 	UseOriginalTitle    bool   `json:"use_original_title" yaml:"use_original_title"`
 	// 多维表格导出字段策略：
-	// false（默认）导出表的全部字段；true 仅导出视图中“可见”的字段（更贴近飞书网页导出）
+	// false（默认）导出表的全部字段；true 仅导出视图中"可见"的字段（更贴近飞书网页导出）
 	BitableViewFieldsOnly bool `json:"bitable_view_fields_only" yaml:"bitable_view_fields_only"`
+	// 是否过滤图片引用：true 表示从表格导出中移除图片文件名，减少无用的文本噪音
+	FilterImageReferences bool `json:"filter_image_references" yaml:"filter_image_references"`
 }
 
 // MergeSettings represents merge-specific settings
@@ -59,6 +61,8 @@ type DocConfig struct {
 	Type       string `json:"type,omitempty" yaml:"type,omitempty"`
 	// 针对单个文档覆盖：仅导出视图可见字段
 	BitableViewFieldsOnly *bool `json:"bitable_view_fields_only,omitempty" yaml:"bitable_view_fields_only,omitempty"`
+	// 针对单个文档覆盖：是否过滤图片引用
+	FilterImageReferences *bool `json:"filter_image_references,omitempty" yaml:"filter_image_references,omitempty"`
 }
 
 // NewSyncConfig creates a new sync configuration with defaults

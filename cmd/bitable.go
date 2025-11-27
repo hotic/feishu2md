@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,8 +29,9 @@ type fieldInfo struct {
 // url 必须包含 table=tbl...;若包含 view=vew... 将按视图顺序组织列
 // preferName 为空时,文件名采用 App_表_视图;否则使用自定义名称
 // viewFieldsOnly 为 true 时,仅导出该视图中"可见"的字段(尽量贴近 Web 导出)
+// filterImages 为 true 时,过滤掉图片文件引用,减少无用文本噪音
 // 返回生成文件的实际文件名
-func exportBitable(ctx context.Context, client *core.Client, url string, format string, outputDir string, preferName string, viewFieldsOnly bool) (string, error) {
+func exportBitable(ctx context.Context, client *core.Client, url string, format string, outputDir string, preferName string, viewFieldsOnly bool, filterImages bool) (string, error) {
 	// 从 URL 提取 tbl/vew 参数
 	tableID, viewID := utils.ExtractBitableParams(url)
 	if tableID == "" {
@@ -151,7 +151,7 @@ func exportBitable(ctx context.Context, client *core.Client, url string, format 
 			isCSV := strings.EqualFold(format, "csv")
 			for _, col := range ordered {
 				val := extractField(item.Fields, col.id, col.name)
-				row = append(row, formatFieldValue(col, val, isCSV))
+				row = append(row, formatFieldValue(col, val, isCSV, filterImages))
 			}
 			rows = append(rows, row)
 		}
@@ -420,6 +420,21 @@ func createDataValidation() DataValidation {
 	return newDataValidation()
 }
 
+// isImageFile 检测文件名是否为图片文件
+func isImageFile(filename string) bool {
+	if filename == "" {
+		return false
+	}
+	lower := strings.ToLower(filename)
+	imageExts := []string{".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".tif"}
+	for _, ext := range imageExts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
 // 尝试使用字段名和字段 ID 键提取字段值
 func extractField(m map[string]interface{}, fieldID, fieldName string) interface{} {
 	if m == nil {
@@ -442,9 +457,39 @@ func extractField(m map[string]interface{}, fieldID, fieldName string) interface
 }
 
 // 格式化字段值为字符串表示
-func formatFieldValue(col fieldInfo, v interface{}, isCSV bool) string {
+func formatFieldValue(col fieldInfo, v interface{}, isCSV bool, filterImages bool) string {
 	if v == nil {
 		return ""
+	}
+
+	// 预处理：如果是 map[type:xxx value:xxx] 格式，先提取value
+	// 这是 textFieldAsArray=true 和 displayFormulaRef=true 时的常见格式
+	if m, ok := v.(map[string]interface{}); ok {
+		if typeStr, hasType := m["type"].(string); hasType {
+			if value, hasValue := m["value"]; hasValue {
+				// 对于某些引用字段，如果有value_extra则显示为空
+				if (typeStr == "single_option" || typeStr == "multi_option") && m["value_extra"] != nil {
+					return ""
+				}
+				// 提取value继续处理
+				v = value
+				// 如果value是单元素数组且包含attachmentToken，说明是附件字段，直接提取第一个元素
+				if arr, isArr := v.([]interface{}); isArr && len(arr) == 1 {
+					if itemMap, ok := arr[0].(map[string]interface{}); ok {
+						if _, hasToken := itemMap["attachmentToken"]; hasToken {
+							// 直接返回文件名
+							if name, ok := itemMap["name"].(string); ok {
+								// 如果开启了图片过滤且是图片文件，返回空
+								if filterImages && isImageFile(name) {
+									return ""
+								}
+								return name
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// 提前检查:如果值是包含 type:single_option 或 type:multi_option 的 map
@@ -465,12 +510,30 @@ func formatFieldValue(col fieldInfo, v interface{}, isCSV bool) string {
 	case 1: // 文本
 		// 当 text_field_as_array=true 时,文本字段可能返回 map[text:xxx type:text]
 		if m, ok := v.(map[string]interface{}); ok {
-			if s, ok := m["text"].(string); ok {
+			if s, ok := m["text"].(string); ok && s != "" {
+				// 如果开启了图片过滤且是图片文件，返回空
+				if filterImages && isImageFile(s) {
+					return ""
+				}
 				return s
 			}
+			// 尝试提取name字段作为后备
+			if s, ok := m["name"].(string); ok && s != "" {
+				// 如果开启了图片过滤且是图片文件，返回空
+				if filterImages && isImageFile(s) {
+					return ""
+				}
+				return s
+			}
+			// 如果是空map或无法提取有用信息，返回空字符串
+			return ""
 		}
 		switch t := v.(type) {
 		case string:
+			// 如果开启了图片过滤且是图片文件，返回空
+			if filterImages && isImageFile(t) {
+				return ""
+			}
 			return t
 		case []interface{}:
 			parts := make([]string, 0, len(t))
@@ -478,15 +541,37 @@ func formatFieldValue(col fieldInfo, v interface{}, isCSV bool) string {
 				// 每个项也可能是带有 text 字段的 map
 				if m, ok := it.(map[string]interface{}); ok {
 					if s, ok := m["text"].(string); ok {
+						// 如果开启了图片过滤且是图片文件，跳过
+						if filterImages && isImageFile(s) {
+							continue
+						}
 						parts = append(parts, s)
 						continue
 					}
+					if s, ok := m["name"].(string); ok {
+						// 如果开启了图片过滤且是图片文件，跳过
+						if filterImages && isImageFile(s) {
+							continue
+						}
+						parts = append(parts, s)
+						continue
+					}
+					// 跳过无法提取有用信息的map
+					continue
 				}
-				parts = append(parts, fmt.Sprint(it))
+				s := fmt.Sprint(it)
+				// 如果开启了图片过滤且是图片文件，跳过
+				if filterImages && isImageFile(s) {
+					continue
+				}
+				if s != "" && s != "map[]" {
+					parts = append(parts, s)
+				}
 			}
 			return strings.Join(parts, "\n")
 		default:
-			return fmt.Sprint(v)
+			// 对于未知类型，返回空字符串而不是fmt.Sprint
+			return ""
 		}
 	case 2: // 数字
 		return fmt.Sprint(v)
@@ -509,7 +594,14 @@ func formatFieldValue(col fieldInfo, v interface{}, isCSV bool) string {
 		}
 		return fmt.Sprint(v)
 	case 17: // 附件
-		return joinList(v, func(x interface{}) string { return pickStringField(x, "name") })
+		return joinList(v, func(x interface{}) string {
+			name := pickStringField(x, "name")
+			// 如果开启了图片过滤且是图片文件，返回空字符串（会被 joinList 过滤掉）
+			if filterImages && isImageFile(name) {
+				return ""
+			}
+			return name
+		})
 	case 18: // 单向关联(从当前表指向其他表)
 		// 官方导出中,单向关联字段显示为空(因为它是反向引用)
 		// 如果字段有实际的文本内容,则显示;否则返回空
@@ -627,8 +719,76 @@ func formatFieldValue(col fieldInfo, v interface{}, isCSV bool) string {
 	case 1003, 1004: // 创建者/修改者(人员)
 		return joinList(v, func(x interface{}) string { return pickStringField(x, "name") })
 	default:
-		// 未知或复杂类型:尽力转换为字符串
-		return fmt.Sprint(v)
+		// 未知或复杂类型:尝试从map中提取有用信息,否则转换为字符串
+		// 首先尝试从map[text:xxx type:text]结构中提取text字段
+		if m, ok := v.(map[string]interface{}); ok {
+			// 优先提取text字段
+			if s, ok := m["text"].(string); ok && s != "" {
+				return s
+			}
+			// 其次尝试name字段（对于附件等）
+			if s, ok := m["name"].(string); ok && s != "" {
+				return s
+			}
+			// 对于数组,递归处理
+			if arr, ok := m["text_arr"].([]interface{}); ok && len(arr) > 0 {
+				parts := make([]string, 0, len(arr))
+				for _, item := range arr {
+					if s := fmt.Sprint(item); s != "" {
+						parts = append(parts, s)
+					}
+				}
+				if len(parts) > 0 {
+					return strings.Join(parts, ",")
+				}
+			}
+		}
+		// 处理数组类型:尝试提取每个元素的有用信息
+		if arr, ok := v.([]interface{}); ok && len(arr) > 0 {
+			parts := make([]string, 0, len(arr))
+			for _, item := range arr {
+				// 对每个元素递归处理
+				if m, ok := item.(map[string]interface{}); ok {
+					// 如果有text字段，优先使用
+					if s, ok := m["text"].(string); ok && s != "" {
+						parts = append(parts, s)
+						continue
+					}
+					// 如果有name字段（附件、人员等），使用name
+					if s, ok := m["name"].(string); ok && s != "" {
+						parts = append(parts, s)
+						continue
+					}
+					// 如果有attachmentToken字段，说明是附件，只提取name
+					if _, hasToken := m["attachmentToken"]; hasToken {
+						if s, ok := m["name"].(string); ok && s != "" {
+							// 如果开启了图片过滤且是图片文件，跳过
+							if filterImages && isImageFile(s) {
+								continue
+							}
+							parts = append(parts, s)
+							continue
+						}
+						// 跳过无法提取name的附件
+						continue
+					}
+				}
+				// 对于不是map的元素，转换为字符串
+				if s := fmt.Sprint(item); s != "" && s != "map[]" {
+					parts = append(parts, s)
+				}
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, ",")
+			}
+		}
+		// 最后才使用fmt.Sprint
+		result := fmt.Sprint(v)
+		// 如果结果是空的map,返回空字符串
+		if result == "map[]" || result == "[]" {
+			return ""
+		}
+		return result
 	}
 }
 
@@ -699,22 +859,8 @@ func joinList(v interface{}, mapFn func(interface{}) string) string {
 		if v == nil {
 			return ""
 		}
-		// 尝试 id->value 的 map,按键排序
-		if m, ok := v.(map[string]interface{}); ok {
-			keys := make([]string, 0, len(m))
-			for k := range m {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			out := make([]string, 0, len(keys))
-			for _, k := range keys {
-				mapped := mapFn(m[k])
-				if mapped != "" {
-					out = append(out, mapped)
-				}
-			}
-			return strings.Join(out, ",")
-		}
+		// 对于单个map对象，直接应用mapFn（而不是遍历键值对）
+		// 这对于附件等字段很重要，避免输出整个map结构
 		return mapFn(v)
 	}
 }
